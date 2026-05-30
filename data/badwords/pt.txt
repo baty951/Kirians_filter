@@ -1,0 +1,19 @@
+# Português — lista base de palavrões (correspondência por subcadeia).
+# Administradores ampliam por chat com /addword.
+merda
+caralho
+porra
+foder
+foda
+puta
+puto
+cu
+cuzão
+buceta
+viado
+corno
+fdp
+desgraça
+piranha
+otario
+otário

@@ -1,0 +1,42 @@
+# Version control
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets (provided at runtime via env_file, not baked in)
+.env
+.env.*
+!.env.example
+
+# Application data & logs
+data/*.db
+data/*.sqlite3
+*.log
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project docs & meta (not needed in the runtime image)
+README.md
+.dockerignore
+Dockerfile
+docker-compose.yml

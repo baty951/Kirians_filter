@@ -1,0 +1,16 @@
+# Italiano — elenco base di parolacce (corrispondenza per sottostringa).
+# Gli amministratori ampliano per chat con /addword.
+merda
+cazzo
+stronzo
+stronza
+puttana
+troia
+vaffanculo
+figa
+coglione
+bastardo
+porca
+minchia
+checca
+stocazzo

@@ -1,0 +1,18 @@
+# Türkçe — temel küfür listesi (alt dize eşleşmesi).
+# Yöneticiler /addword ile sohbete özel genişletir.
+amk
+amına
+amcık
+sik
+sikik
+siktir
+piç
+orospu
+yarrak
+göt
+gavat
+pezevenk
+kahpe
+oç
+mal
+salak

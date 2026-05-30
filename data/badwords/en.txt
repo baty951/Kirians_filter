@@ -1,0 +1,19 @@
+# English — base profanity stems (substring match, case-insensitive).
+# Stems catch inflections: "fuck" also matches "fucking", "fucker".
+# Admins extend per-chat via /addword. Review for false positives.
+fuck
+shit
+bitch
+asshole
+bastard
+dick
+pussy
+cunt
+whore
+slut
+motherfucker
+bullshit
+dumbass
+jackass
+faggot
+retard

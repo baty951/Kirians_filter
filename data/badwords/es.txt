@@ -1,0 +1,20 @@
+# Español — base de palabras malsonantes (coincidencia por subcadena).
+# Los administradores amplían por chat con /addword.
+mierda
+joder
+puta
+puto
+pendejo
+cabron
+cabrón
+gilipollas
+coño
+polla
+verga
+chinga
+pinche
+maricon
+maricón
+zorra
+cojones
+hijoputa

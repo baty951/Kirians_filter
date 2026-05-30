@@ -1,0 +1,18 @@
+# Français — liste de base de grossièretés (correspondance par sous-chaîne).
+# Les administrateurs complètent par chat via /addword.
+merde
+putain
+connard
+connasse
+salope
+enculé
+encule
+pute
+bordel
+batard
+bâtard
+foutre
+couilles
+ducon
+pédé
+pede

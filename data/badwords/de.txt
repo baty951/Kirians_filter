@@ -1,0 +1,16 @@
+# Deutsch — Basisliste anstößiger Wörter (Teilstring-Treffer).
+# Admins erweitern pro Chat mit /addword.
+scheiße
+scheisse
+arschloch
+fick
+ficken
+fotze
+hurensohn
+schlampe
+wichser
+miststück
+verdammt
+schwanz
+nutte
+vollidiot
