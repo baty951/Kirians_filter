@@ -29,5 +29,5 @@ jobs:
             git fetch --all --prune
             git reset --hard origin/${{ github.ref_name }}
             docker compose pull
-            docker compose up -d --build --remove-orphans
+            docker compose -p kirians-filter up -d --build --remove-orphans
             docker image prune -f
