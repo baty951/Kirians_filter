@@ -45,6 +45,50 @@ docker compose logs -f bot
 Бота нужно добавить в чат и выдать права администратора (удаление сообщений,
 бан/ограничение участников).
 
+## Деплой (GitHub Actions → VPS по SSH)
+
+При пуше в `main`/`master` workflow `.github/workflows/deploy.yml` подключается
+к серверу по SSH, обновляет код и перезапускает контейнеры
+(`docker compose up -d --build`). Миграции прогоняются автоматически при старте
+контейнера бота.
+
+### 1. Разово подготовить сервер
+
+На VPS должны быть установлены **Docker** и **docker compose**, затем:
+
+```bash
+# клонировать репозиторий в каталог деплоя
+git clone https://github.com/baty951/Kirians_filter.git /opt/kirians_filter
+cd /opt/kirians_filter
+cp .env.example .env        # впишите реальный BOT_TOKEN и пароли — этот файл НЕ в git
+```
+
+### 2. Добавить SSH-ключ для деплоя
+
+Сгенерируйте отдельную пару ключей (без пароля) и разрешите вход публичным ключом:
+
+```bash
+ssh-keygen -t ed25519 -f deploy_key -N ""
+ssh-copy-id -i deploy_key.pub user@SERVER_IP   # или вручную в ~/.ssh/authorized_keys
+```
+
+Приватный ключ (`deploy_key`) понадобится в секрете `SSH_KEY`.
+
+### 3. Прописать секреты в GitHub
+
+`Settings → Secrets and variables → Actions → New repository secret`:
+
+| Секрет | Значение |
+|---|---|
+| `SSH_HOST` | IP или домен сервера |
+| `SSH_USER` | пользователь SSH (например `deploy` или `root`) |
+| `SSH_KEY` | **приватный** ключ целиком (содержимое `deploy_key`) |
+| `SSH_PORT` | порт SSH (необязательно; по умолчанию `22`) |
+| `DEPLOY_PATH` | путь к репозиторию на сервере, напр. `/opt/kirians_filter` |
+
+После этого любой пуш в `main`/`master` автоматически разворачивает бота.
+Запустить деплой вручную можно во вкладке **Actions → Deploy → Run workflow**.
+
 ## Архитектура
 
 ```

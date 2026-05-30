@@ -1,0 +1,33 @@
+name: Deploy
+
+# Деплой бота на VPS при пуше в основную ветку.
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch: {}   # позволяет запустить деплой вручную из вкладки Actions
+
+# Не запускать два деплоя одновременно; новый отменяет предыдущий.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}   # необязательный секрет; если не задан — берётся 22
+          script_stop: true               # упасть на первой же ошибке команды
+          script: |
+            set -e
+            cd "${{ secrets.DEPLOY_PATH }}"
+            git fetch --all --prune
+            git reset --hard origin/${{ github.ref_name }}
+            docker compose pull
+            docker compose up -d --build --remove-orphans
+            docker image prune -f
