@@ -15,7 +15,15 @@ from bot.database.crud import (
 )
 from bot.filters.language import SCRIPT_RANGES, normalize_scripts, parse_scripts
 from bot.middlewares.admin_check import is_user_admin
-from bot.utils.actions import ban_user, kick_user, log_action, mute_user, unban_user, unmute_user
+from bot.utils.actions import (
+    ban_user,
+    humanize_error,
+    kick_user,
+    log_action,
+    mute_user,
+    unban_user,
+    unmute_user,
+)
 from bot.utils.helpers import extract_target_and_reason, is_protected, parse_duration
 
 router = Router(name="admin")
@@ -47,7 +55,13 @@ async def cmd_warn(message: Message, bot: Bot, session: AsyncSession) -> None:
     total = await add_warning(session, message.chat.id, target_id, message.from_user.id, reason)
 
     if total >= chat.warn_limit:
-        await mute_user(bot, message.chat.id, target_id, parse_duration(f"{chat.mute_minutes}m"))
+        err = await mute_user(bot, message.chat.id, target_id, parse_duration(f"{chat.mute_minutes}m"))
+        if err:
+            await message.reply(
+                f"⚠️ Лимит {total}/{chat.warn_limit} достигнут, но заглушить не удалось: "
+                f"{humanize_error(err)}."
+            )
+            return
         await reset_warnings(session, message.chat.id, target_id)
         await message.reply(
             f"🔇 Пользователь набрал {total}/{chat.warn_limit} предупреждений "
@@ -111,7 +125,10 @@ async def cmd_mute(message: Message, bot: Bot, session: AsyncSession) -> None:
         parsed = parse_duration(first)
         if parsed:
             duration, reason, human = parsed, tail or None, first
-    await mute_user(bot, message.chat.id, target_id, duration)
+    err = await mute_user(bot, message.chat.id, target_id, duration)
+    if err:
+        await message.reply(f"⚠️ Не удалось заглушить пользователя: {humanize_error(err)}.")
+        return
     await message.reply(f"🔇 Пользователь заглушен ({human}).")
     await log_action(
         bot, session, message.chat.id,
@@ -128,7 +145,10 @@ async def cmd_unmute(message: Message, bot: Bot, session: AsyncSession) -> None:
     if target_id is None:
         await message.reply("Ответьте на сообщение или укажите ID пользователя.")
         return
-    await unmute_user(bot, message.chat.id, target_id)
+    err = await unmute_user(bot, message.chat.id, target_id)
+    if err:
+        await message.reply(f"⚠️ Не удалось снять заглушение: {humanize_error(err)}.")
+        return
     await message.reply("🔊 Заглушение снято.")
     await log_action(
         bot, session, message.chat.id, f"UNMUTE: user {target_id}",
@@ -147,7 +167,10 @@ async def cmd_ban(message: Message, bot: Bot, session: AsyncSession) -> None:
     if is_protected(target_id, bot):
         await message.reply("Этот пользователь защищён от ограничений.")
         return
-    await ban_user(bot, message.chat.id, target_id)
+    err = await ban_user(bot, message.chat.id, target_id)
+    if err:
+        await message.reply(f"⚠️ Не удалось забанить пользователя: {humanize_error(err)}.")
+        return
     await message.reply("🔨 Пользователь забанен." + (f"\nПричина: {reason}" if reason else ""))
     await log_action(
         bot, session, message.chat.id, f"BAN: user {target_id}, причина: {reason or '—'}",
@@ -163,7 +186,10 @@ async def cmd_unban(message: Message, bot: Bot, session: AsyncSession) -> None:
     if target_id is None:
         await message.reply("Укажите ID пользователя.")
         return
-    await unban_user(bot, message.chat.id, target_id)
+    err = await unban_user(bot, message.chat.id, target_id)
+    if err:
+        await message.reply(f"⚠️ Не удалось разбанить пользователя: {humanize_error(err)}.")
+        return
     await message.reply("✅ Пользователь разбанен.")
     await log_action(
         bot, session, message.chat.id, f"UNBAN: user {target_id}",
@@ -182,7 +208,10 @@ async def cmd_kick(message: Message, bot: Bot, session: AsyncSession) -> None:
     if is_protected(target_id, bot):
         await message.reply("Этот пользователь защищён от ограничений.")
         return
-    await kick_user(bot, message.chat.id, target_id)
+    err = await kick_user(bot, message.chat.id, target_id)
+    if err:
+        await message.reply(f"⚠️ Не удалось удалить пользователя: {humanize_error(err)}.")
+        return
     await message.reply("👢 Пользователь удалён из чата.")
     await log_action(
         bot, session, message.chat.id, f"KICK: user {target_id}, причина: {reason or '—'}",

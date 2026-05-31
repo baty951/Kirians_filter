@@ -5,6 +5,7 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import ErrorEvent
 from redis.asyncio import Redis
 
 from config import get_settings
@@ -63,6 +64,14 @@ async def main() -> None:
     dp.message.middleware(AntiFloodMiddleware(redis))
 
     dp.include_router(setup_routers())
+
+    @dp.errors()
+    async def on_unhandled_error(event: ErrorEvent) -> bool:
+        """Last-resort net: log any error a handler let through (e.g. a
+        Telegram API rejection) instead of dumping a traceback, and keep the
+        bot polling. Per-action errors are handled in their commands."""
+        logger.warning("Unhandled update error: %s", event.exception)
+        return True
 
     logger.info("Starting Kirians Filter bot")
     try:

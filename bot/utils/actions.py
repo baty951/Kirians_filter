@@ -1,10 +1,53 @@
+import logging
+from collections.abc import Awaitable
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import ChatPermissions
 
 from bot.database.crud import add_log, get_or_create_chat
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
+
+# Maps recurring Telegram API error fragments to a human-readable Russian hint.
+_ERROR_HINTS = {
+    "remove chat owner": "нельзя ограничить владельца чата",
+    "user is an administrator": "нельзя ограничить администратора чата",
+    "not enough rights": "у бота недостаточно прав",
+    "have no rights": "у бота недостаточно прав",
+    "chat_admin_required": "у бота недостаточно прав",
+    "user_not_participant": "пользователь не состоит в чате",
+    "user not found": "пользователь не найден",
+    "method is available only for supergroups": "доступно только в супергруппах",
+    "can't restrict self": "бот не может ограничить сам себя",
+}
+
+
+def humanize_error(description: str | None) -> str:
+    """Turn a raw Telegram error description into a friendly Russian phrase."""
+    if not description:
+        return "неизвестная ошибка"
+    low = description.lower()
+    for fragment, hint in _ERROR_HINTS.items():
+        if fragment in low:
+            return hint
+    return description
+
+
+async def _safe_call(action: Awaitable[object]) -> str | None:
+    """Await a Telegram action, swallowing API errors.
+
+    Returns None on success, or the error description on failure (also logged),
+    so callers can inform the user instead of crashing the handler.
+    """
+    try:
+        await action
+        return None
+    except (TelegramBadRequest, TelegramForbiddenError) as exc:
+        logger.warning("Telegram action failed: %s", exc.message)
+        return exc.message
 
 MUTED_PERMISSIONS = ChatPermissions(
     can_send_messages=False,
@@ -33,29 +76,35 @@ UNMUTED_PERMISSIONS = ChatPermissions(
 )
 
 
-async def mute_user(bot: Bot, chat_id: int, user_id: int, until: timedelta | None) -> None:
+async def mute_user(bot: Bot, chat_id: int, user_id: int, until: timedelta | None) -> str | None:
     until_date = datetime.now(timezone.utc) + until if until else None
-    await bot.restrict_chat_member(
-        chat_id, user_id, permissions=MUTED_PERMISSIONS, until_date=until_date
+    return await _safe_call(
+        bot.restrict_chat_member(
+            chat_id, user_id, permissions=MUTED_PERMISSIONS, until_date=until_date
+        )
     )
 
 
-async def unmute_user(bot: Bot, chat_id: int, user_id: int) -> None:
-    await bot.restrict_chat_member(chat_id, user_id, permissions=UNMUTED_PERMISSIONS)
+async def unmute_user(bot: Bot, chat_id: int, user_id: int) -> str | None:
+    return await _safe_call(
+        bot.restrict_chat_member(chat_id, user_id, permissions=UNMUTED_PERMISSIONS)
+    )
 
 
-async def ban_user(bot: Bot, chat_id: int, user_id: int) -> None:
-    await bot.ban_chat_member(chat_id, user_id)
+async def ban_user(bot: Bot, chat_id: int, user_id: int) -> str | None:
+    return await _safe_call(bot.ban_chat_member(chat_id, user_id))
 
 
-async def unban_user(bot: Bot, chat_id: int, user_id: int) -> None:
-    await bot.unban_chat_member(chat_id, user_id, only_if_banned=True)
+async def unban_user(bot: Bot, chat_id: int, user_id: int) -> str | None:
+    return await _safe_call(bot.unban_chat_member(chat_id, user_id, only_if_banned=True))
 
 
-async def kick_user(bot: Bot, chat_id: int, user_id: int) -> None:
+async def kick_user(bot: Bot, chat_id: int, user_id: int) -> str | None:
     """Kick = ban then immediately unban so the user can rejoin."""
-    await bot.ban_chat_member(chat_id, user_id)
-    await bot.unban_chat_member(chat_id, user_id, only_if_banned=True)
+    err = await _safe_call(bot.ban_chat_member(chat_id, user_id))
+    if err:
+        return err
+    return await _safe_call(bot.unban_chat_member(chat_id, user_id, only_if_banned=True))
 
 
 async def log_action(
