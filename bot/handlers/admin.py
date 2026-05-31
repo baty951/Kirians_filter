@@ -1,3 +1,5 @@
+import json
+
 from aiogram import Bot, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
@@ -234,10 +236,11 @@ async def cmd_purge(message: Message, bot: Bot, session: AsyncSession) -> None:
             await bot.delete_messages(message.chat.id, chunk)
         except Exception:
             pass
+    # Full content lives in the `messages` table; here we log only the id range.
     await log_action(
         bot, session, message.chat.id, f"PURGE: {len(ids)} сообщений (admin {message.from_user.id})",
         action="PURGE", actor_id=message.from_user.id,
-        content=f"{len(ids)} сообщений, id {ids[0]}–{ids[-1]}",
+        content=json.dumps({"range": [ids[0], ids[-1]], "total": len(ids)}, ensure_ascii=False),
     )
 
 

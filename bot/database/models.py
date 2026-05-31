@@ -76,6 +76,21 @@ class ActionLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class StoredMessage(Base):
+    """Every incoming group message, kept so /purge (and audits) can map a
+    deleted message id back to its author, time and text. No FK to `chats`:
+    rows are written before the chat row may exist."""
+
+    __tablename__ = "messages"
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    message_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, index=True, nullable=True)
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class BannedWord(Base):
     """A forbidden word/pattern scoped to a chat (chat_id NULL = global)."""
 

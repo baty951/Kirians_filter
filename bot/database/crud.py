@@ -1,8 +1,11 @@
+from datetime import datetime
+
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from bot.database.models import ActionLog, BannedWord, Chat, Warning
+from bot.database.models import ActionLog, BannedWord, Chat, StoredMessage, Warning
 
 
 async def get_or_create_chat(session: AsyncSession, chat_id: int, title: str | None = None) -> Chat:
@@ -43,6 +46,24 @@ async def reset_warnings(session: AsyncSession, chat_id: int, user_id: int) -> N
     await session.execute(
         delete(Warning).where(Warning.chat_id == chat_id, Warning.user_id == user_id)
     )
+    await session.commit()
+
+
+async def add_message(
+    session: AsyncSession,
+    chat_id: int,
+    message_id: int,
+    user_id: int | None,
+    text: str | None,
+    date: datetime | None,
+) -> None:
+    """Store an incoming message. Idempotent: re-seen ids are ignored."""
+    stmt = (
+        pg_insert(StoredMessage)
+        .values(chat_id=chat_id, message_id=message_id, user_id=user_id, text=text, date=date)
+        .on_conflict_do_nothing(index_elements=["chat_id", "message_id"])
+    )
+    await session.execute(stmt)
     await session.commit()
 
 

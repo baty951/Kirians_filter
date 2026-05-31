@@ -14,6 +14,7 @@ from bot.database.engine import create_engine, create_sessionmaker
 from bot.handlers import setup_routers
 from bot.middlewares.antiflood import AntiFloodMiddleware
 from bot.middlewares.db import DbSessionMiddleware
+from bot.middlewares.message_store import MessageStoreMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("kirians_filter")
@@ -61,6 +62,9 @@ async def main() -> None:
 
     # DB session for every update (messages + callbacks); antiflood for messages only.
     dp.update.outer_middleware(DbSessionMiddleware(sessionmaker))
+    # Store group messages first (needs the session) so /purge can reference
+    # deleted ids back to their content, then antiflood.
+    dp.message.middleware(MessageStoreMiddleware())
     dp.message.middleware(AntiFloodMiddleware(redis))
 
     dp.include_router(setup_routers())
