@@ -1,6 +1,6 @@
 from aiogram import Router
 
-from bot.handlers import admin, common, moderation, settings, welcome
+from bot.handlers import admin, badwords, common, moderation, settings, welcome
 
 
 def setup_routers() -> Router:
@@ -9,6 +9,7 @@ def setup_routers() -> Router:
     router = Router()
     router.include_router(common.router)
     router.include_router(admin.router)
+    router.include_router(badwords.router)
     router.include_router(settings.router)
     router.include_router(welcome.router)
     router.include_router(moderation.router)  # catch-all, must be last
