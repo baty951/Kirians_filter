@@ -11,6 +11,9 @@ class Settings(BaseSettings):
 
     bot_token: str = Field(alias="BOT_TOKEN")
 
+    # Comma-separated Telegram user IDs immune to all restrictions.
+    protected_ids_raw: str = Field("", alias="PROTECTED_IDS")
+
     postgres_host: str = Field("postgres", alias="POSTGRES_HOST")
     postgres_port: int = Field(5432, alias="POSTGRES_PORT")
     postgres_user: str = Field("kirians", alias="POSTGRES_USER")
@@ -26,6 +29,15 @@ class Settings(BaseSettings):
     antiflood_messages: int = Field(5, alias="ANTIFLOOD_MESSAGES")
     antiflood_window_seconds: int = Field(5, alias="ANTIFLOOD_WINDOW_SECONDS")
     captcha_timeout_seconds: int = Field(120, alias="CAPTCHA_TIMEOUT_SECONDS")
+
+    @property
+    def protected_ids(self) -> set[int]:
+        ids: set[int] = set()
+        for part in self.protected_ids_raw.split(","):
+            part = part.strip()
+            if part.lstrip("-").isdigit():
+                ids.add(int(part))
+        return ids
 
     @property
     def postgres_dsn(self) -> str:

@@ -8,7 +8,7 @@ from bot.filters.content import contains_link, find_banned_word
 from bot.filters.language import detect_blocked_script, parse_scripts
 from bot.middlewares.admin_check import is_user_admin
 from bot.utils.actions import log_action, mute_user
-from bot.utils.helpers import parse_duration
+from bot.utils.helpers import is_protected, parse_duration
 
 router = Router(name="moderation")
 router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
@@ -24,6 +24,8 @@ async def auto_moderate(
     apply a temporary mute.
     """
     if message.from_user is None or message.from_user.is_bot:
+        return
+    if is_protected(message.from_user.id, bot):
         return
     if await is_user_admin(bot, message.chat.id, message.from_user.id):
         return

@@ -16,7 +16,7 @@ from bot.database.crud import (
 from bot.filters.language import SCRIPT_RANGES, normalize_scripts, parse_scripts
 from bot.middlewares.admin_check import is_user_admin
 from bot.utils.actions import ban_user, kick_user, log_action, mute_user, unban_user, unmute_user
-from bot.utils.helpers import extract_target_and_reason, parse_duration
+from bot.utils.helpers import extract_target_and_reason, is_protected, parse_duration
 
 router = Router(name="admin")
 # All handlers in this router only apply to group chats.
@@ -39,8 +39,8 @@ async def cmd_warn(message: Message, bot: Bot, session: AsyncSession) -> None:
     if target_id is None:
         await message.reply("Ответьте на сообщение или укажите ID пользователя.")
         return
-    if target_id == bot.id:
-        await message.reply("Нельзя выдать предупреждение боту.")
+    if is_protected(target_id, bot):
+        await message.reply("Этот пользователь защищён от ограничений.")
         return
 
     chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
@@ -91,6 +91,9 @@ async def cmd_mute(message: Message, bot: Bot, session: AsyncSession) -> None:
     if target_id is None:
         await message.reply("Ответьте на сообщение или укажите ID пользователя.")
         return
+    if is_protected(target_id, bot):
+        await message.reply("Этот пользователь защищён от ограничений.")
+        return
     # First token of the remainder may be a duration like 30m/2h/1d.
     duration = None
     reason = rest
@@ -126,6 +129,9 @@ async def cmd_ban(message: Message, bot: Bot, session: AsyncSession) -> None:
     if target_id is None:
         await message.reply("Ответьте на сообщение или укажите ID пользователя.")
         return
+    if is_protected(target_id, bot):
+        await message.reply("Этот пользователь защищён от ограничений.")
+        return
     await ban_user(bot, message.chat.id, target_id)
     await message.reply("🔨 Пользователь забанен." + (f"\nПричина: {reason}" if reason else ""))
     await log_action(bot, session, message.chat.id, f"BAN: user {target_id}, причина: {reason or '—'}")
@@ -151,6 +157,9 @@ async def cmd_kick(message: Message, bot: Bot, session: AsyncSession) -> None:
     target_id, reason = extract_target_and_reason(message)
     if target_id is None:
         await message.reply("Ответьте на сообщение или укажите ID пользователя.")
+        return
+    if is_protected(target_id, bot):
+        await message.reply("Этот пользователь защищён от ограничений.")
         return
     await kick_user(bot, message.chat.id, target_id)
     await message.reply("👢 Пользователь удалён из чата.")
