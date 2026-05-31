@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from bot.database.crud import get_or_create_chat
-from bot.utils.actions import MUTED_PERMISSIONS, kick_user, unmute_user
+from bot.utils.actions import MUTED_PERMISSIONS, unmute_user
 from bot.utils.captcha import build_captcha
 from bot.utils.helpers import mention
 
@@ -44,19 +44,20 @@ async def on_join(message: Message, bot: Bot, session: AsyncSession, redis: Redi
 
         await redis.set(_pending_key(message.chat.id, user.id), sent.message_id, ex=settings.captcha_timeout_seconds + 5)
         asyncio.create_task(
-            _kick_if_unsolved(bot, redis, message.chat.id, user.id, sent.message_id, settings.captcha_timeout_seconds)
+            _expire_unsolved_captcha(bot, redis, message.chat.id, user.id, sent.message_id, settings.captcha_timeout_seconds)
         )
 
 
-async def _kick_if_unsolved(
+async def _expire_unsolved_captcha(
     bot: Bot, redis: Redis, chat_id: int, user_id: int, captcha_msg_id: int, timeout: int
 ) -> None:
+    """On timeout, remove the challenge but leave the user muted (no kick).
+    They can get a fresh captcha by leaving and rejoining the chat."""
     await asyncio.sleep(timeout)
     key = _pending_key(chat_id, user_id)
     if await redis.exists(key):
         await redis.delete(key)
         try:
-            await kick_user(bot, chat_id, user_id)
             await bot.delete_message(chat_id, captcha_msg_id)
         except Exception:
             pass
@@ -80,7 +81,13 @@ async def on_captcha_answer(callback: CallbackQuery, bot: Bot, redis: Redis) -> 
         await callback.message.delete()
         await callback.answer("✅ Добро пожаловать!")
     else:
+        # Wrong answer: keep the user muted (do not kick). They stay in the chat
+        # but cannot write until they pass a fresh captcha — obtained by leaving
+        # and rejoining the chat.
         await redis.delete(key)
         await callback.message.delete()
-        await kick_user(bot, chat_id, callback.from_user.id)
-        await callback.answer("❌ Неверно. Вы удалены из чата.", show_alert=True)
+        await callback.answer(
+            "❌ Неверно. Вы останетесь без права писать. "
+            "Выйдите из чата и зайдите снова, чтобы пройти проверку заново.",
+            show_alert=True,
+        )
