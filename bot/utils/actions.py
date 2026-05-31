@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from aiogram import Bot
 from aiogram.types import ChatPermissions
 
-from bot.database.crud import get_or_create_chat
+from bot.database.crud import add_log, get_or_create_chat
 from sqlalchemy.ext.asyncio import AsyncSession
 
 MUTED_PERMISSIONS = ChatPermissions(
@@ -59,9 +59,33 @@ async def kick_user(bot: Bot, chat_id: int, user_id: int) -> None:
 
 
 async def log_action(
-    bot: Bot, session: AsyncSession, chat_id: int, text: str
+    bot: Bot,
+    session: AsyncSession,
+    chat_id: int,
+    text: str,
+    *,
+    action: str | None = None,
+    actor_id: int | None = None,
+    target_id: int | None = None,
+    reason: str | None = None,
+    content: str | None = None,
 ) -> None:
-    """Send a moderation log line to the chat's configured log channel, if any."""
+    """Record a moderation event.
+
+    When ``action`` is given, a structured row is persisted to the
+    ``action_logs`` table. Regardless, ``text`` is mirrored to the chat's
+    configured log channel, if any.
+    """
+    if action is not None:
+        await add_log(
+            session,
+            chat_id,
+            action,
+            actor_id=actor_id,
+            target_id=target_id,
+            reason=reason,
+            content=content,
+        )
     chat = await get_or_create_chat(session, chat_id)
     if chat.log_channel_id:
         try:

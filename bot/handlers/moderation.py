@@ -36,7 +36,11 @@ async def auto_moderate(
     if chat.antiflood_enabled and flooding:
         await _delete(message)
         await mute_user(bot, message.chat.id, message.from_user.id, parse_duration("10m"))
-        await log_action(bot, session, message.chat.id, f"FLOOD→MUTE: user {message.from_user.id}")
+        await log_action(
+            bot, session, message.chat.id, f"FLOOD→MUTE: user {message.from_user.id}",
+            action="FLOOD_MUTE", actor_id=bot.id, target_id=message.from_user.id,
+            content=message.text or message.caption or None,
+        )
         return
 
     text = message.text or message.caption or ""
@@ -47,19 +51,31 @@ async def auto_moderate(
         hit = find_banned_word(text, words)
         if hit:
             await _delete(message)
-            await log_action(bot, session, message.chat.id, f"BADWORD «{hit}»: user {message.from_user.id}")
+            await log_action(
+                bot, session, message.chat.id, f"BADWORD «{hit}»: user {message.from_user.id}",
+                action="DELETE", actor_id=bot.id, target_id=message.from_user.id,
+                reason=f"badword «{hit}»", content=text,
+            )
             return
 
     # 3. Links.
     if chat.filter_links and text and contains_link(text):
         await _delete(message)
-        await log_action(bot, session, message.chat.id, f"LINK: user {message.from_user.id}")
+        await log_action(
+            bot, session, message.chat.id, f"LINK: user {message.from_user.id}",
+            action="DELETE", actor_id=bot.id, target_id=message.from_user.id,
+            reason="link", content=text,
+        )
         return
 
     # 4. Media restriction.
     if chat.filter_media and (message.photo or message.video or message.animation or message.sticker):
         await _delete(message)
-        await log_action(bot, session, message.chat.id, f"MEDIA: user {message.from_user.id}")
+        await log_action(
+            bot, session, message.chat.id, f"MEDIA: user {message.from_user.id}",
+            action="DELETE", actor_id=bot.id, target_id=message.from_user.id,
+            reason="media", content=text or None,
+        )
         return
 
     # 5. Language / script filter.
@@ -67,7 +83,11 @@ async def auto_moderate(
         script = detect_blocked_script(text, parse_scripts(chat.blocked_scripts))
         if script:
             await _delete(message)
-            await log_action(bot, session, message.chat.id, f"LANG «{script}»: user {message.from_user.id}")
+            await log_action(
+                bot, session, message.chat.id, f"LANG «{script}»: user {message.from_user.id}",
+                action="DELETE", actor_id=bot.id, target_id=message.from_user.id,
+                reason=f"lang «{script}»", content=text,
+            )
             return
 
 

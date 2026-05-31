@@ -53,12 +53,20 @@ async def cmd_warn(message: Message, bot: Bot, session: AsyncSession) -> None:
             f"🔇 Пользователь набрал {total}/{chat.warn_limit} предупреждений "
             f"и заглушен на {chat.mute_minutes} мин."
         )
-        await log_action(bot, session, message.chat.id, f"WARN→MUTE: user {target_id}, причина: {reason or '—'}")
+        await log_action(
+            bot, session, message.chat.id,
+            f"WARN→MUTE: user {target_id}, причина: {reason or '—'}",
+            action="WARN_MUTE", actor_id=message.from_user.id, target_id=target_id, reason=reason,
+        )
     else:
         await message.reply(
             f"⚠️ Предупреждение {total}/{chat.warn_limit}." + (f"\nПричина: {reason}" if reason else "")
         )
-        await log_action(bot, session, message.chat.id, f"WARN {total}: user {target_id}, причина: {reason or '—'}")
+        await log_action(
+            bot, session, message.chat.id,
+            f"WARN {total}: user {target_id}, причина: {reason or '—'}",
+            action="WARN", actor_id=message.from_user.id, target_id=target_id, reason=reason,
+        )
 
 
 @router.message(Command("unwarn"))
@@ -105,7 +113,11 @@ async def cmd_mute(message: Message, bot: Bot, session: AsyncSession) -> None:
             duration, reason, human = parsed, tail or None, first
     await mute_user(bot, message.chat.id, target_id, duration)
     await message.reply(f"🔇 Пользователь заглушен ({human}).")
-    await log_action(bot, session, message.chat.id, f"MUTE: user {target_id}, срок: {human}, причина: {reason or '—'}")
+    await log_action(
+        bot, session, message.chat.id,
+        f"MUTE: user {target_id}, срок: {human}, причина: {reason or '—'}",
+        action="MUTE", actor_id=message.from_user.id, target_id=target_id, reason=reason, content=f"срок: {human}",
+    )
 
 
 @router.message(Command("unmute"))
@@ -118,7 +130,10 @@ async def cmd_unmute(message: Message, bot: Bot, session: AsyncSession) -> None:
         return
     await unmute_user(bot, message.chat.id, target_id)
     await message.reply("🔊 Заглушение снято.")
-    await log_action(bot, session, message.chat.id, f"UNMUTE: user {target_id}")
+    await log_action(
+        bot, session, message.chat.id, f"UNMUTE: user {target_id}",
+        action="UNMUTE", actor_id=message.from_user.id, target_id=target_id,
+    )
 
 
 @router.message(Command("ban"))
@@ -134,7 +149,10 @@ async def cmd_ban(message: Message, bot: Bot, session: AsyncSession) -> None:
         return
     await ban_user(bot, message.chat.id, target_id)
     await message.reply("🔨 Пользователь забанен." + (f"\nПричина: {reason}" if reason else ""))
-    await log_action(bot, session, message.chat.id, f"BAN: user {target_id}, причина: {reason or '—'}")
+    await log_action(
+        bot, session, message.chat.id, f"BAN: user {target_id}, причина: {reason or '—'}",
+        action="BAN", actor_id=message.from_user.id, target_id=target_id, reason=reason,
+    )
 
 
 @router.message(Command("unban"))
@@ -147,7 +165,10 @@ async def cmd_unban(message: Message, bot: Bot, session: AsyncSession) -> None:
         return
     await unban_user(bot, message.chat.id, target_id)
     await message.reply("✅ Пользователь разбанен.")
-    await log_action(bot, session, message.chat.id, f"UNBAN: user {target_id}")
+    await log_action(
+        bot, session, message.chat.id, f"UNBAN: user {target_id}",
+        action="UNBAN", actor_id=message.from_user.id, target_id=target_id,
+    )
 
 
 @router.message(Command("kick"))
@@ -163,11 +184,14 @@ async def cmd_kick(message: Message, bot: Bot, session: AsyncSession) -> None:
         return
     await kick_user(bot, message.chat.id, target_id)
     await message.reply("👢 Пользователь удалён из чата.")
-    await log_action(bot, session, message.chat.id, f"KICK: user {target_id}, причина: {reason or '—'}")
+    await log_action(
+        bot, session, message.chat.id, f"KICK: user {target_id}, причина: {reason or '—'}",
+        action="KICK", actor_id=message.from_user.id, target_id=target_id, reason=reason,
+    )
 
 
 @router.message(Command("purge"))
-async def cmd_purge(message: Message, bot: Bot) -> None:
+async def cmd_purge(message: Message, bot: Bot, session: AsyncSession) -> None:
     if not await _guard(message, bot):
         return
     if not message.reply_to_message:
@@ -181,6 +205,11 @@ async def cmd_purge(message: Message, bot: Bot) -> None:
             await bot.delete_messages(message.chat.id, chunk)
         except Exception:
             pass
+    await log_action(
+        bot, session, message.chat.id, f"PURGE: {len(ids)} сообщений (admin {message.from_user.id})",
+        action="PURGE", actor_id=message.from_user.id,
+        content=f"{len(ids)} сообщений, id {ids[0]}–{ids[-1]}",
+    )
 
 
 @router.message(Command("addword"))

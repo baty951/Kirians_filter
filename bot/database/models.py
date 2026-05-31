@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -52,6 +52,28 @@ class Warning(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     chat: Mapped["Chat"] = relationship(back_populates="warnings")
+
+
+class ActionLog(Base):
+    """Audit log of moderation events: message deletions (with the deleted
+    text), mutes/unmutes, bans/unbans, kicks, warns — by admins and the bot."""
+
+    __tablename__ = "action_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("chats.chat_id", ondelete="CASCADE"), index=True
+    )
+    # Event type, e.g. DELETE / MUTE / UNMUTE / BAN / UNBAN / KICK / WARN / PURGE.
+    action: Mapped[str] = mapped_column(String(32))
+    # Who performed it: an admin's user id, or the bot's id for automatic actions.
+    actor_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # The affected user, when applicable.
+    target_id: Mapped[int | None] = mapped_column(BigInteger, index=True, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Free-form extra payload — the deleted message text for DELETE events.
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class BannedWord(Base):

@@ -2,7 +2,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from bot.database.models import BannedWord, Chat, Warning
+from bot.database.models import ActionLog, BannedWord, Chat, Warning
 
 
 async def get_or_create_chat(session: AsyncSession, chat_id: int, title: str | None = None) -> Chat:
@@ -42,6 +42,30 @@ async def count_warnings(session: AsyncSession, chat_id: int, user_id: int) -> i
 async def reset_warnings(session: AsyncSession, chat_id: int, user_id: int) -> None:
     await session.execute(
         delete(Warning).where(Warning.chat_id == chat_id, Warning.user_id == user_id)
+    )
+    await session.commit()
+
+
+async def add_log(
+    session: AsyncSession,
+    chat_id: int,
+    action: str,
+    *,
+    actor_id: int | None = None,
+    target_id: int | None = None,
+    reason: str | None = None,
+    content: str | None = None,
+) -> None:
+    """Persist a single audit-log entry."""
+    session.add(
+        ActionLog(
+            chat_id=chat_id,
+            action=action,
+            actor_id=actor_id,
+            target_id=target_id,
+            reason=reason,
+            content=content,
+        )
     )
     await session.commit()
 
