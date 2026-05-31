@@ -39,6 +39,9 @@ async def cmd_warn(message: Message, bot: Bot, session: AsyncSession) -> None:
     if target_id is None:
         await message.reply("Ответьте на сообщение или укажите ID пользователя.")
         return
+    if target_id == bot.id:
+        await message.reply("Нельзя выдать предупреждение боту.")
+        return
 
     chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
     total = await add_warning(session, message.chat.id, target_id, message.from_user.id, reason)
