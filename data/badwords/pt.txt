@@ -1,19 +1,79 @@
-# Português — lista base de palavrões (correspondência por subcadeia).
-# Administradores ampliam por chat com /addword.
+# Português — palavrões (correspondência no INÍCIO da palavra, sem maiúsculas).
+# Uma raiz captura flexões: "fod" → "foder", "fodido", "fodendo".
+# Raízes curtas ambíguas são evitadas ("pau"/"rola" são também palavras
+# comuns). ATENÇÃO: a raiz "cu" (já existente) dispara com «cuidado/cultura» —
+# considere removê-la. Administradores ampliam por chat com /addword.
+
+# — Núcleo —
 merda
+merdoso
 caralho
+caralh
 porra
+cacete
+desgraça
+desgraçado
+
+# — Sexual / anatômico —
 foder
+fodido
+fodendo
+fode
+fodase
 foda
 puta
-puto
+putaria
+putedo
+putona
+putinha
+buceta
+boceta
+xota
+xoxota
+periquita
 cu
 cuzão
-buceta
-viado
+cuzao
+rabo
+chupada
+mamada
+boquete
+punheta
+punheteiro
+piru
 corno
-fdp
-desgraça
-piranha
+cornudo
+cornão
+
+# — Insultos —
+viado
+boiola
+baitola
+arrombado
+arrombad
+vagabundo
+vagabunda
+safado
+safada
+escroto
+escrota
 otario
 otário
+babaca
+filhadaputa
+filhodaputa
+fdp
+piranha
+idiota
+imbecil
+retardado
+mongoloide
+tapado
+trouxa
+panaca
+jumento
+prostituta
+
+# — Homofóbicos / pejorativos (bloqueio) —
+bicha
+frutinha

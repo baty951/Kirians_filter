@@ -1,16 +1,80 @@
-# Deutsch — Basisliste anstößiger Wörter (Teilstring-Treffer).
-# Admins erweitern pro Chat mit /addword.
+# Deutsch — anstößige Wörter (Treffer am WORTANFANG, ohne Groß-/Kleinschreibung).
+# Ein Stamm erfasst Beugungen: "fick" → "ficken", "gefickt".
+# Mehrdeutige kurze Stämme werden ausgelassen, um Fehltreffer zu vermeiden
+# ("sau" träfe «sauber/Sauce», "fresse" träfe «fressen»). Stattdessen stehen
+# eindeutige Komposita. Admins erweitern pro Chat mit /addword.
+
+# — Kern —
 scheiße
 scheisse
-arschloch
+scheiss
+scheisser
+scheisskerl
+scheissdreck
+kacke
+kacken
+kackbratze
+verdammt
+mist
+miststück
+drecksau
+dreckskerl
+drecksack
+sauhund
+
+# — Sexuell / anatomisch —
 fick
 ficken
+ficker
+abgefuckt
 fotze
-hurensohn
-schlampe
-wichser
-miststück
-verdammt
+fotzen
 schwanz
+schwanzlutscher
+möse
+muschi
+wichser
+wichsen
+wichs
+wixer
+wixen
 nutte
+nuttig
+hure
+hurensohn
+hurenkind
+hurentochter
+schlampe
+pisser
+pisse
+verpiss
+anpissen
+hodensack
+sackgesicht
+titten
+
+# — Beleidigungen —
+arsch
+arschloch
+arschgeige
+arschkriecher
 vollidiot
+vollpfosten
+dummkopf
+blödmann
+depp
+trottel
+idiot
+bastard
+missgeburt
+penner
+abschaum
+
+# — Abwertend (Sperre) —
+schwuchtel
+spast
+spasti
+spacko
+mongo
+behindert
+krüppel

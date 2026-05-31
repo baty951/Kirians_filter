@@ -1,19 +1,124 @@
-# English — base profanity stems (substring match, case-insensitive).
-# Stems catch inflections: "fuck" also matches "fucking", "fucker".
-# Admins extend per-chat via /addword. Review for false positives.
+# English — profanity & slur stems (matched at WORD START, case-insensitive).
+# A stem catches inflections: "fuck" -> "fucking", "fucker", "fucked".
+# Short ambiguous stems are intentionally omitted to avoid false positives
+# (bare "ass" hits "assume", "cum" hits "cumulative", "hell" hits "hello",
+# "spic" hits "spice", "chink" hits a legit word). Add them per-chat via
+# /addword if you accept the trade-off. Review periodically.
+
+# — Core profanity —
 fuck
+fucker
+fucked
+fucking
+motherfucker
+fuckface
+fuckwit
+fuckwad
+fuckboy
+fucktard
+clusterfuck
 shit
-bitch
-asshole
-bastard
+shite
+bullshit
+shithead
+shithole
+shitbag
+shitface
+dipshit
+horseshit
+batshit
+chickenshit
+shitty
+piss
+pissed
+goddamn
+goddamned
+
+# — Sexual / anatomical (vulgar) —
 dick
+dickhead
+dickwad
+dickface
+dickbag
+cock
+cocksucker
+cockhead
+prick
+knobhead
+bellend
+wank
+wanker
+jerkoff
+jackoff
+circlejerk
 pussy
 cunt
-whore
-slut
-motherfucker
-bullshit
+twat
+boner
+ballsack
+nutsack
+blowjob
+handjob
+rimjob
+jizz
+cumshot
+cumslut
+cumdump
+titties
+nympho
+
+# — Insulting names —
+asshole
+arsehole
+asswipe
+asshat
 dumbass
 jackass
+smartass
+bastard
+douche
+douchebag
+scumbag
+sleazebag
+whore
+whoring
+slut
+slutty
+skank
+bimbo
+moron
+imbecile
+cretin
+
+# — Slurs (blocked outright) —
+nigger
+nigga
+niggas
+niggers
+coon
+kike
+gook
+wetback
+beaner
+towelhead
+raghead
+sandnigger
 faggot
+faggy
+tranny
+shemale
 retard
+retarded
+spaz
+spastic
+mongoloid
+midget
+
+# — Common evasions / leetspeak —
+phuck
+fuk
+fukk
+fugg
+fuq
+biatch
+azzhole

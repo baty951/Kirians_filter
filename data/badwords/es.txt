@@ -1,20 +1,102 @@
-# Español — base de palabras malsonantes (coincidencia por subcadena).
-# Los administradores amplían por chat con /addword.
+# Español — palabras malsonantes (coincidencia al INICIO de palabra, sin mayús.).
+# Una raíz captura flexiones: "puta" → "putas", "putada".
+# Se omiten raíces ambiguas para evitar falsos positivos (p. ej. "con" choca
+# con «contra/conocer», "foll" con «follaje»). "concha"/"chocho" pueden dar
+# falsos positivos según el país. Los administradores amplían con /addword.
+
+# — Núcleo —
 mierda
+mierdoso
 joder
+jodido
+jodete
+jode
 puta
 puto
+putada
+putona
+putita
+puteria
+coño
+coñazo
+carajo
+carajito
+hostia
+
+# — Sexual / anatómico —
+polla
+verga
+vergazo
+pija
+chocho
+chingar
+chingada
+chingado
+chingues
+follar
+follad
+follando
+mamada
+mamon
+mamón
+mamahuevo
+mamaguevo
+chupapollas
+chupamela
+correrse
+pajero
+pajearse
+teta
+culo
+culero
+culiao
+ojete
+
+# — Insultos —
 pendejo
 cabron
 cabrón
 gilipollas
-coño
-polla
-verga
-chinga
-pinche
+gilipuertas
+capullo
+huevon
+huevón
+huevada
+boludo
+pelotudo
+conchudo
+soplapollas
+soplagaitas
+hijoputa
+hijueputa
+malparido
+gonorrea
+zorra
+zorron
+perra
+ramera
+golfa
+cornudo
+imbecil
+imbécil
+idiota
+estupido
+estúpido
+tarado
+subnormal
+retrasado
+mongolico
+mongólico
+baboso
+cagada
+cagon
+cagón
+
+# — Homófobos / despectivos (bloqueo) —
 maricon
 maricón
-zorra
-cojones
-hijoputa
+marica
+mariquita
+maricona
+tortillera
+bollera

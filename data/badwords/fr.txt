@@ -1,18 +1,83 @@
-# Français — liste de base de grossièretés (correspondance par sous-chaîne).
-# Les administrateurs complètent par chat via /addword.
+# Français — grossièretés (correspondance en DÉBUT de mot, sans casse).
+# Une racine capture les flexions : "encul" → "enculé", "enculer".
+# Les racines courtes ambiguës sont évitées pour limiter les faux positifs
+# ("con" heurte «contre/connaître», "cul" heurte «culture/culotte», "gueule"
+# heurte «gueuler»). Les administrateurs complètent par chat via /addword.
+
+# — Noyau —
 merde
+merdique
+merdeux
+merdier
 putain
 connard
 connasse
+conard
+connerie
+conne
+bordel
+bordélique
+saloperie
+
+# — Sexuel / anatomique —
+bite
+bitte
+couille
+couillon
+couilles
+foutre
+foutu
+foutaise
+branl
+branler
+branleur
+branlette
+chier
+chiant
+chiotte
+chié
+chiure
+nique
+niquer
+niquta
+bander
+chatte
 salope
+salaud
+salopard
+pute
+putes
+pétasse
+grognasse
+pouffiasse
+
+# — Insultes —
 enculé
 encule
-pute
-bordel
+enculer
+enculeur
+enfoiré
+enflure
+ducon
+trouduc
+troudballe
 batard
 bâtard
-foutre
-couilles
-ducon
+débile
+crétin
+abruti
+imbécile
+taré
+attardé
+ordure
+raclure
+
+# — Homophobes / racistes (blocage) —
 pédé
 pede
+pédale
+tarlouze
+nègre
+négro
+bicot
+bougnoule

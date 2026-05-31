@@ -1,18 +1,75 @@
-# Türkçe — temel küfür listesi (alt dize eşleşmesi).
-# Yöneticiler /addword ile sohbete özel genişletir.
+# Türkçe — küfürler (KELİME BAŞINDA eşleşme, büyük/küçük harf duyarsız).
+# Bir kök çekimleri yakalar: "sik" → "sikmek", "sikik", "sikiş".
+# Belirsiz kısa kökler hatalı eşleşmeyi önlemek için eklenmedi (çıplak "am"
+# «amaç/ambulans» ile, "bok" «boks» ile, "top" «toplum» ile çakışır). Bunun
+# yerine net biçimler var. Yöneticiler /addword ile genişletir.
+
+# — Çekirdek —
 amk
-amına
+amq
 amcık
+amına
+amın
+aminakoyim
+amınakoyayım
+amınakoyim
 sik
 sikik
+sikiş
+sikis
 siktir
-piç
-orospu
+sikeyim
+sikim
+sikici
+çük
+
+# — Cinsel / anatomik —
 yarrak
+yarak
+yarra
 göt
-gavat
-pezevenk
-kahpe
+götveren
+götoğlanı
+götlek
+göto
+orospu
+orospuçocuğu
+oçocuğu
 oç
+kahpe
+kahbe
+piç
+piçkurusu
+şırfıntı
+sürtük
+kaltak
+fahişe
+kevaşe
+boktan
+bokça
+
+# — Pezevenklik / hakaret —
+pezevenk
+kerhane
+kerhaneci
+gavat
+puşt
+pust
+ibne
+ipne
+nonoş
+ananı
+anan
+avradını
+avradini
+
+# — Aptal/aşağılama —
 mal
 salak
+gerizekalı
+aptal
+embesil
+dangalak
+ahmak
+beyinsiz
+şerefsiz

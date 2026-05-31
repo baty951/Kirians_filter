@@ -1,16 +1,77 @@
-# Italiano — elenco base di parolacce (corrispondenza per sottostringa).
-# Gli amministratori ampliano per chat con /addword.
+# Italiano — parolacce (corrispondenza a INIZIO parola, senza maiuscole).
+# Una radice cattura le flessioni: "stronz" → "stronzo", "stronza".
+# Le radici ambigue sono evitate per i falsi positivi ("sega" = anche
+# l'attrezzo, "finocchio" = anche l'ortaggio, "figata" = positivo). Gli
+# amministratori ampliano per chat con /addword.
+
+# — Nucleo —
 merda
+merdoso
+merdata
 cazzo
-stronzo
-stronza
-puttana
-troia
-vaffanculo
-figa
-coglione
-bastardo
+cazzata
+cazzone
+incazzat
+scazzo
+cazzeggi
+stronz
+stronzata
 porca
+porco
+porcata
+porcone
+mannaggia
+
+# — Sessuale / anatomico —
+figa
+fica
 minchia
-checca
+minchione
+minchiata
+coglione
+coglioni
+scoglionat
+culo
+culattone
+inculare
+incula
+pompino
+seghaiolo
+puttana
+puttaniere
+troia
+troiaio
+troione
+troiata
+zoccola
+mignotta
+bagascia
+baldracca
+ciucciami
+succhiami
+
+# — Insulti —
+bastardo
+vaffanculo
+affanculo
+fanculo
+testa di cazzo
+deficiente
+handicappato
+ritardato
+mongoloide
+idiota
+imbecille
+cretino
+scemo
+pirla
+sfigato
+sfigat
 stocazzo
+cesso
+
+# — Omofobi / dispregiativi (blocco) —
+frocio
+frocia
+ricchione
+checca
