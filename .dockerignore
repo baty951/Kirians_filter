@@ -40,3 +40,7 @@ README.md
 .dockerignore
 Dockerfile
 docker-compose.yml
+tests/
+scripts/
+.github/
+requirements-dev.txt

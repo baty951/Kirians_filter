@@ -10,7 +10,7 @@ HELP_TEXT = (
     "• /warn [причина] — выдать предупреждение\n"
     "• /unwarn — сбросить предупреждения\n"
     "• /warns — показать число предупреждений\n"
-    "• /mute [время] [причина] — заглушить (напр. 30m, 2h, 1d)\n"
+    "• /mute [время] [причина] — заглушить (1m–365d; без времени — навсегда)\n"
     "• /unmute — снять заглушение\n"
     "• /ban [причина] — забанить\n"
     "• /unban — разбанить\n"
@@ -27,6 +27,7 @@ HELP_TEXT = (
 )
 
 
+@router.channel_post(CommandStart())
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     await message.answer(
@@ -36,6 +37,7 @@ async def cmd_start(message: Message) -> None:
     )
 
 
+@router.channel_post(Command("help"))
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     await message.answer(HELP_TEXT)

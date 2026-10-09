@@ -1,12 +1,14 @@
 import logging
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
+from html import escape
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import ChatPermissions
 
-from bot.database.crud import add_log, get_or_create_chat
+from bot.database.crud import add_log, cancel_captcha, get_or_create_chat
+from bot.utils.helpers import restriction_lock
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -33,10 +35,10 @@ def humanize_error(description: str | None) -> str:
     for fragment, hint in _ERROR_HINTS.items():
         if fragment in low:
             return hint
-    return description
+    return escape(description)
 
 
-async def _safe_call(action: Awaitable[object]) -> str | None:
+async def safe_call(action: Awaitable[object]) -> str | None:
     """Await a Telegram action, swallowing API errors.
 
     Returns None on success, or the error description on failure (also logged),
@@ -45,7 +47,7 @@ async def _safe_call(action: Awaitable[object]) -> str | None:
     try:
         await action
         return None
-    except (TelegramBadRequest, TelegramForbiddenError) as exc:
+    except TelegramAPIError as exc:
         logger.warning("Telegram action failed: %s", exc.message)
         return exc.message
 
@@ -76,35 +78,53 @@ UNMUTED_PERMISSIONS = ChatPermissions(
 )
 
 
-async def mute_user(bot: Bot, chat_id: int, user_id: int, until: timedelta | None) -> str | None:
-    until_date = datetime.now(timezone.utc) + until if until else None
-    return await _safe_call(
-        bot.restrict_chat_member(
-            chat_id, user_id, permissions=MUTED_PERMISSIONS, until_date=until_date
-        )
+async def _apply_restriction(
+    action: Callable[[], Awaitable[object]], session: AsyncSession, chat_id: int, user_id: int,
+) -> str | None:
+    async with restriction_lock(chat_id, user_id):
+        # Cancel first: an ambiguous API failure must never let a captcha undo a punishment.
+        await cancel_captcha(session, chat_id, user_id)
+        return await safe_call(action())
+
+
+async def mute_user(
+    bot: Bot, chat_id: int, user_id: int, until: timedelta | None, *, session: AsyncSession,
+) -> str | None:
+    if until is not None and not 60 <= until.total_seconds() < 366 * 86400:
+        return "Время мута: от 1 минуты до срока меньше 366 дней."
+    until_date = datetime.now(timezone.utc) + until if until is not None else None
+    return await _apply_restriction(
+        lambda: bot.restrict_chat_member(
+            chat_id, user_id, permissions=MUTED_PERMISSIONS, until_date=until_date,
+        ), session, chat_id, user_id,
     )
 
 
-async def unmute_user(bot: Bot, chat_id: int, user_id: int) -> str | None:
-    return await _safe_call(
-        bot.restrict_chat_member(chat_id, user_id, permissions=UNMUTED_PERMISSIONS)
+async def unmute_user(bot: Bot, chat_id: int, user_id: int, *, session: AsyncSession) -> str | None:
+    return await _apply_restriction(
+        lambda: bot.restrict_chat_member(chat_id, user_id, permissions=UNMUTED_PERMISSIONS),
+        session, chat_id, user_id,
     )
 
 
-async def ban_user(bot: Bot, chat_id: int, user_id: int) -> str | None:
-    return await _safe_call(bot.ban_chat_member(chat_id, user_id))
+async def ban_user(bot: Bot, chat_id: int, user_id: int, *, session: AsyncSession) -> str | None:
+    return await _apply_restriction(lambda: bot.ban_chat_member(chat_id, user_id), session, chat_id, user_id)
 
 
-async def unban_user(bot: Bot, chat_id: int, user_id: int) -> str | None:
-    return await _safe_call(bot.unban_chat_member(chat_id, user_id, only_if_banned=True))
+async def unban_user(bot: Bot, chat_id: int, user_id: int, *, session: AsyncSession) -> str | None:
+    return await _apply_restriction(
+        lambda: bot.unban_chat_member(chat_id, user_id, only_if_banned=True), session, chat_id, user_id,
+    )
 
 
-async def kick_user(bot: Bot, chat_id: int, user_id: int) -> str | None:
+async def kick_user(bot: Bot, chat_id: int, user_id: int, *, session: AsyncSession) -> str | None:
     """Kick = ban then immediately unban so the user can rejoin."""
-    err = await _safe_call(bot.ban_chat_member(chat_id, user_id))
-    if err:
-        return err
-    return await _safe_call(bot.unban_chat_member(chat_id, user_id, only_if_banned=True))
+    async with restriction_lock(chat_id, user_id):
+        await cancel_captcha(session, chat_id, user_id)
+        err = await safe_call(bot.ban_chat_member(chat_id, user_id))
+        if err:
+            return err
+        return await safe_call(bot.unban_chat_member(chat_id, user_id, only_if_banned=True))
 
 
 async def log_action(
@@ -125,6 +145,7 @@ async def log_action(
     ``action_logs`` table. Regardless, ``text`` is mirrored to the chat's
     configured log channel, if any.
     """
+    chat = await get_or_create_chat(session, chat_id)
     if action is not None:
         await add_log(
             session,
@@ -135,9 +156,8 @@ async def log_action(
             reason=reason,
             content=content,
         )
-    chat = await get_or_create_chat(session, chat_id)
     if chat.log_channel_id:
         try:
-            await bot.send_message(chat.log_channel_id, text)
-        except Exception:
-            pass
+            await bot.send_message(chat.log_channel_id, text, parse_mode=None)
+        except TelegramAPIError:
+            logger.exception("Could not send moderation log to %s", chat.log_channel_id)

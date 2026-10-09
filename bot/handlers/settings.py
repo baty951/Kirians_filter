@@ -7,9 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.database.crud import get_or_create_chat, update_chat_setting
 from bot.database.models import Chat
 from bot.middlewares.admin_check import is_user_admin
+from bot.handlers.admin import _guard
 
 router = Router(name="settings")
-router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
+router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}))
 
 # field name -> human label for the toggle menu
 TOGGLES: dict[str, str] = {
@@ -32,10 +33,10 @@ def _build_keyboard(chat: Chat) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+@router.channel_post(Command("settings"))
 @router.message(Command("settings"))
 async def cmd_settings(message: Message, bot: Bot, session: AsyncSession) -> None:
-    if message.from_user is None or not await is_user_admin(bot, message.chat.id, message.from_user.id):
-        await message.reply("⛔ Только для администраторов.")
+    if not await _guard(message, bot):
         return
     chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
     await message.answer(
@@ -47,6 +48,9 @@ async def cmd_settings(message: Message, bot: Bot, session: AsyncSession) -> Non
 
 @router.callback_query(F.data.startswith("set:"))
 async def toggle_setting(callback: CallbackQuery, bot: Bot, session: AsyncSession) -> None:
+    if not isinstance(callback.message, Message):
+        await callback.answer("Меню недоступно.")
+        return
     chat_id = callback.message.chat.id
     if not await is_user_admin(bot, chat_id, callback.from_user.id):
         await callback.answer("Только для администраторов.", show_alert=True)

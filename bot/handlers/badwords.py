@@ -13,7 +13,7 @@ from bot.middlewares.admin_check import is_user_admin
 from bot.utils.helpers import mention
 
 router = Router(name="badwords")
-router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
+router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}))
 
 BADWORDS_DIR = Path(__file__).resolve().parents[2] / "data" / "badwords"
 
@@ -85,12 +85,13 @@ async def _send_dm(bot: Bot, user_id: int, messages: list[str]) -> bool:
     """Try to DM the user. Returns False if the bot may not message them."""
     try:
         for text in messages:
-            await bot.send_message(user_id, text)
+            await bot.send_message(user_id, text, parse_mode=None)
         return True
     except (TelegramForbiddenError, TelegramBadRequest):
         return False
 
 
+@router.channel_post(Command("badwords", "words"))
 @router.message(Command("badwords", "words"))
 async def cmd_badwords(message: Message) -> None:
     await message.answer(
@@ -102,6 +103,9 @@ async def cmd_badwords(message: Message) -> None:
 @router.callback_query(F.data.startswith("bwlang:"))
 async def on_lang_chosen(callback: CallbackQuery, bot: Bot, session: AsyncSession) -> None:
     lang = callback.data.split(":", 1)[1]
+    if lang not in LANG_NAMES or not isinstance(callback.message, Message):
+        await callback.answer("Неизвестный язык или недоступное меню.")
+        return
     chat = callback.message.chat
     chat_title = chat.title or "этот чат"
     name = LANG_NAMES.get(lang, lang)

@@ -2,17 +2,61 @@ name: Deploy
 
 # Деплой бота на VPS при пуше в основную ветку.
 on:
+  pull_request:
   push:
     branches: [main, master]
   workflow_dispatch: {}   # позволяет запустить деплой вручную из вкладки Actions
 
-# Не запускать два деплоя одновременно; новый отменяет предыдущий.
+# Проверки обязательны; деплои выполняются последовательно без отмены миграций.
 concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  group: deploy-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      BOT_TOKEN: "123456:ABC-test-token"
+      POSTGRES_HOST: localhost
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test
+      TEST_POSTGRES_DSN: postgresql+asyncpg://test:test@localhost:5432/test
+      TEST_REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m unittest discover -s tests -v
+      - run: alembic upgrade head
+      - run: alembic check
+
   deploy:
+    needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
@@ -28,6 +72,4 @@ jobs:
             cd "${{ secrets.DEPLOY_PATH }}"
             git fetch --all --prune
             git reset --hard origin/${{ github.ref_name }}
-            docker compose pull
-            docker compose -p kirians-filter up -d --build --remove-orphans
-            docker image prune -f
+            bash scripts/deploy.sh

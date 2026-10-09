@@ -73,7 +73,7 @@ class ActionLog(Base):
     reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Free-form extra payload — the deleted message text for DELETE events.
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class StoredMessage(Base):
@@ -88,7 +88,20 @@ class StoredMessage(Base):
     user_id: Mapped[int | None] = mapped_column(BigInteger, index=True, nullable=True)
     text: Mapped[str | None] = mapped_column(Text, nullable=True)
     date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class CaptchaChallenge(Base):
+    """Durable challenge and ownership of its mute, including failed challenges."""
+
+    __tablename__ = "captcha_challenges"
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    message_id: Mapped[int] = mapped_column(BigInteger)
+    answer: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class BannedWord(Base):

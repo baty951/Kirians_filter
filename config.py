@@ -2,6 +2,7 @@ from functools import lru_cache
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL
 
 
 class Settings(BaseSettings):
@@ -24,27 +25,29 @@ class Settings(BaseSettings):
     redis_port: int = Field(6379, alias="REDIS_PORT")
     redis_db: int = Field(0, alias="REDIS_DB")
 
-    default_warn_limit: int = Field(3, alias="DEFAULT_WARN_LIMIT")
-    default_mute_minutes: int = Field(60, alias="DEFAULT_MUTE_MINUTES")
-    antiflood_messages: int = Field(5, alias="ANTIFLOOD_MESSAGES")
-    antiflood_window_seconds: int = Field(5, alias="ANTIFLOOD_WINDOW_SECONDS")
-    captcha_timeout_seconds: int = Field(120, alias="CAPTCHA_TIMEOUT_SECONDS")
+    default_warn_limit: int = Field(3, alias="DEFAULT_WARN_LIMIT", ge=1)
+    default_mute_minutes: int = Field(60, alias="DEFAULT_MUTE_MINUTES", ge=1, le=527039)
+    antiflood_messages: int = Field(5, alias="ANTIFLOOD_MESSAGES", ge=1)
+    antiflood_window_seconds: int = Field(5, alias="ANTIFLOOD_WINDOW_SECONDS", ge=1)
+    captcha_timeout_seconds: int = Field(120, alias="CAPTCHA_TIMEOUT_SECONDS", ge=1)
+    archive_retention_days: int = Field(90, alias="ARCHIVE_RETENTION_DAYS", ge=1)
 
     @property
     def protected_ids(self) -> set[int]:
         ids: set[int] = set()
         for part in self.protected_ids_raw.split(","):
             part = part.strip()
-            if part.lstrip("-").isdigit():
+            if part.isdecimal():
                 ids.add(int(part))
         return ids
 
     @property
     def postgres_dsn(self) -> str:
-        return (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
-            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-        )
+        return URL.create(
+            "postgresql+asyncpg", username=self.postgres_user,
+            password=self.postgres_password, host=self.postgres_host,
+            port=self.postgres_port, database=self.postgres_db,
+        ).render_as_string(hide_password=False)
 
     @property
     def redis_url(self) -> str:

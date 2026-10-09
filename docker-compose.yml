@@ -1,10 +1,18 @@
+name: kirians_filter
+
 services:
   bot:
     build: .
     restart: unless-stopped
     env_file: .env
     # Apply DB migrations, then start the bot.
-    command: sh -c "alembic upgrade head && python main.py"
+    command: sh -c "rm -f /tmp/kirians-filter.ready && alembic upgrade head && python main.py"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from pathlib import Path; assert Path('/tmp/kirians-filter.ready').exists()"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 24
     depends_on:
       postgres:
         condition: service_healthy

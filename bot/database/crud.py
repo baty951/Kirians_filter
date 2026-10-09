@@ -5,21 +5,22 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from bot.database.models import ActionLog, BannedWord, Chat, StoredMessage, Warning
+from bot.database.models import ActionLog, BannedWord, CaptchaChallenge, Chat, StoredMessage, Warning
 
 
 async def get_or_create_chat(session: AsyncSession, chat_id: int, title: str | None = None) -> Chat:
     chat = await session.get(Chat, chat_id)
     if chat is None:
         settings = get_settings()
-        chat = Chat(
+        stmt = pg_insert(Chat).values(
             chat_id=chat_id,
             title=title,
             warn_limit=settings.default_warn_limit,
             mute_minutes=settings.default_mute_minutes,
-        )
-        session.add(chat)
+        ).on_conflict_do_nothing(index_elements=["chat_id"])
+        await session.execute(stmt)
         await session.commit()
+        chat = await session.get(Chat, chat_id)
     elif title and chat.title != title:
         chat.title = title
         await session.commit()
@@ -30,6 +31,8 @@ async def add_warning(
     session: AsyncSession, chat_id: int, user_id: int, admin_id: int | None, reason: str | None
 ) -> int:
     """Add a warning and return the user's current warning count in this chat."""
+    validate_reason(reason)
+    await get_or_create_chat(session, chat_id)
     session.add(Warning(chat_id=chat_id, user_id=user_id, admin_id=admin_id, reason=reason))
     await session.commit()
     return await count_warnings(session, chat_id, user_id)
@@ -57,11 +60,14 @@ async def add_message(
     text: str | None,
     date: datetime | None,
 ) -> None:
-    """Store an incoming message. Idempotent: re-seen ids are ignored."""
+    """Keep the latest text when a message is edited or delivered again."""
     stmt = (
         pg_insert(StoredMessage)
         .values(chat_id=chat_id, message_id=message_id, user_id=user_id, text=text, date=date)
-        .on_conflict_do_nothing(index_elements=["chat_id", "message_id"])
+        .on_conflict_do_update(
+            index_elements=["chat_id", "message_id"],
+            set_={"user_id": user_id, "text": text, "date": date},
+        )
     )
     await session.execute(stmt)
     await session.commit()
@@ -78,6 +84,8 @@ async def add_log(
     content: str | None = None,
 ) -> None:
     """Persist a single audit-log entry."""
+    validate_reason(reason)
+    await get_or_create_chat(session, chat_id)
     session.add(
         ActionLog(
             chat_id=chat_id,
@@ -104,6 +112,10 @@ async def get_banned_words(session: AsyncSession, chat_id: int) -> list[BannedWo
 async def add_banned_word(
     session: AsyncSession, chat_id: int | None, pattern: str, is_regex: bool = False
 ) -> None:
+    if not pattern.strip() or len(pattern) > 256:
+        raise ValueError("Слово или фраза должны содержать от 1 до 256 символов.")
+    if chat_id is not None:
+        await get_or_create_chat(session, chat_id)
     session.add(BannedWord(chat_id=chat_id, pattern=pattern, is_regex=is_regex))
     await session.commit()
 
@@ -119,4 +131,22 @@ async def remove_banned_word(session: AsyncSession, chat_id: int | None, pattern
 async def update_chat_setting(session: AsyncSession, chat_id: int, field: str, value) -> None:
     chat = await get_or_create_chat(session, chat_id)
     setattr(chat, field, value)
+    await session.commit()
+
+
+def validate_reason(reason: str | None) -> None:
+    if reason is not None and len(reason) > 512:
+        raise ValueError("Причина должна содержать не более 512 символов.")
+
+
+async def cancel_captcha(session: AsyncSession, chat_id: int, user_id: int) -> None:
+    await session.execute(delete(CaptchaChallenge).where(
+        CaptchaChallenge.chat_id == chat_id, CaptchaChallenge.user_id == user_id,
+    ))
+    await session.commit()
+
+
+async def purge_archives(session: AsyncSession, before: datetime) -> None:
+    for model in (StoredMessage, ActionLog):
+        await session.execute(delete(model).where(model.created_at < before))
     await session.commit()

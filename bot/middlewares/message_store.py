@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
+import logging
 
 from aiogram import BaseMiddleware
 from aiogram.enums import ChatType
@@ -8,13 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.crud import add_message
 
+logger = logging.getLogger(__name__)
+
 
 class MessageStoreMiddleware(BaseMiddleware):
-    """Persist every incoming group message to the `messages` table.
-
-    Reuses the per-update session injected by DbSessionMiddleware. /purge then
-    references deleted message ids back to their stored author/time/text.
-    """
+    """Archive group/channel messages and edits using the per-update session."""
 
     async def __call__(
         self,
@@ -24,8 +23,7 @@ class MessageStoreMiddleware(BaseMiddleware):
     ) -> Any:
         if (
             isinstance(event, Message)
-            and event.from_user is not None
-            and event.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+            and event.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL)
         ):
             session: AsyncSession | None = data.get("session")
             if session is not None:
@@ -34,7 +32,7 @@ class MessageStoreMiddleware(BaseMiddleware):
                         session,
                         event.chat.id,
                         event.message_id,
-                        event.from_user.id,
+                        event.sender_chat.id if event.sender_chat else (event.from_user.id if event.from_user else None),
                         event.text or event.caption,
                         event.date,
                     )
@@ -42,4 +40,5 @@ class MessageStoreMiddleware(BaseMiddleware):
                     # Never block message handling on a storage hiccup; keep the
                     # session usable for downstream handlers.
                     await session.rollback()
+                    logger.exception("Could not store message %s in %s", event.message_id, event.chat.id)
         return await handler(event, data)

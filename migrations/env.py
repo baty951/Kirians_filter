@@ -16,7 +16,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Inject the DSN from our app settings so migrations and the bot share one source.
-config.set_main_option("sqlalchemy.url", get_settings().postgres_dsn)
+config.set_main_option("sqlalchemy.url", get_settings().postgres_dsn.replace("%", "%%"))
 
 target_metadata = Base.metadata
 

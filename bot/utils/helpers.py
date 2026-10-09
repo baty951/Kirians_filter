@@ -1,5 +1,7 @@
 import re
 from datetime import timedelta
+from asyncio import Lock
+from weakref import WeakValueDictionary
 
 from aiogram import Bot
 from aiogram.types import Message, User
@@ -10,6 +12,17 @@ from config import get_settings
 # Matches "30m", "2h", "1d", "10s" → timedelta. Bare number = minutes.
 _DURATION_RE = re.compile(r"^(\d+)\s*([smhd]?)$", re.IGNORECASE)
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "": 60}
+_RESTRICTION_LOCKS: WeakValueDictionary[tuple[int, int], Lock] = WeakValueDictionary()
+
+
+def restriction_lock(chat_id: int, user_id: int) -> Lock:
+    # shortcut: one polling process; use DB locks before running multiple workers.
+    key = (chat_id, user_id)
+    lock = _RESTRICTION_LOCKS.get(key)
+    if lock is None:
+        lock = Lock()
+        _RESTRICTION_LOCKS[key] = lock
+    return lock
 
 
 def mention(user: User) -> str:
@@ -31,7 +44,10 @@ def parse_duration(text: str | None) -> timedelta | None:
     if not match:
         return None
     value, unit = match.groups()
-    return timedelta(seconds=int(value) * _UNIT_SECONDS[unit.lower()])
+    seconds = int(value) * _UNIT_SECONDS[unit.lower()]
+    if not 60 <= seconds < 366 * 86400:
+        raise ValueError("Время мута: от 1 минуты до срока меньше 366 дней.")
+    return timedelta(seconds=seconds)
 
 
 def extract_target_and_reason(message: Message) -> tuple[int | None, str | None]:
@@ -46,7 +62,7 @@ def extract_target_and_reason(message: Message) -> tuple[int | None, str | None]
         reason = " ".join(args) if args else None
         return message.reply_to_message.from_user.id, reason
 
-    if args and args[0].lstrip("-").isdigit():
+    if args and args[0].isdecimal() and int(args[0]) > 0:
         reason = args[1] if len(args) > 1 else None
         return int(args[0]), reason
 

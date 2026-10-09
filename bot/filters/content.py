@@ -1,14 +1,14 @@
 import re
 from functools import lru_cache
+from collections.abc import Iterable
+
+from aiogram.types import MessageEntity
 
 from bot.database.models import BannedWord
 
-# Detects any http(s):// or t.me / telegram link, and bare domains.
-_LINK_RE = re.compile(
-    r"(https?://|www\.|t\.me/|telegram\.me/|@[\w]{4,})|"
-    r"\b[\w-]+\.(com|net|org|ru|io|me|info|xyz|top|link)\b",
-    re.IGNORECASE,
-)
+# Detects any http(s):// or t.me / telegram link. Bare domains come as `url`
+# entities from Telegram, so they are not guessed here ("ok.thanks" is not a link).
+_LINK_RE = re.compile(r"https?://|www\.|t\.me/|telegram\.me/|@[\w]{4,}", re.IGNORECASE)
 
 
 @lru_cache(maxsize=4096)
@@ -37,5 +37,5 @@ def find_banned_word(text: str, words: list[BannedWord]) -> str | None:
     return None
 
 
-def contains_link(text: str) -> bool:
-    return bool(_LINK_RE.search(text))
+def contains_link(text: str, entities: Iterable[MessageEntity] = ()) -> bool:
+    return any(entity.type in ("url", "text_link") for entity in entities) or bool(_LINK_RE.search(text))
