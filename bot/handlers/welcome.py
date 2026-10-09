@@ -39,15 +39,10 @@ async def on_join(message: Message, bot: Bot, session: AsyncSession, redis: Redi
         except Exception:
             pass
 
-        question, keyboard, answer = build_captcha(user.id)
+        question, keyboard = build_captcha(user.id)
         sent = await message.answer(f"{mention(user)}, {question}", reply_markup=keyboard)
 
-        # The whole challenge lives on the server: message id and the answer.
-        await redis.set(
-            _pending_key(message.chat.id, user.id),
-            f"{sent.message_id}:{answer}",
-            ex=settings.captcha_timeout_seconds + 5,
-        )
+        await redis.set(_pending_key(message.chat.id, user.id), sent.message_id, ex=settings.captcha_timeout_seconds + 5)
         asyncio.create_task(
             _expire_unsolved_captcha(bot, redis, message.chat.id, user.id, sent.message_id, settings.captcha_timeout_seconds)
         )
@@ -70,13 +65,7 @@ async def _expire_unsolved_captcha(
 
 @router.callback_query(F.data.startswith("captcha:"))
 async def on_captcha_answer(callback: CallbackQuery, bot: Bot, redis: Redis) -> None:
-    # Callback data comes from the client and Telegram does not guarantee it
-    # matches the message's buttons, so only the choice is taken from it. The
-    # answer and the message come from a live server-side challenge; without
-    # one nothing is unmuted — otherwise a forged callback would also lift a
-    # restriction applied later for another reason.
-    parts = callback.data.split(":")
-    target_id, choice = parts[1], parts[2]
+    _, target_id, choice, answer = callback.data.split(":")
 
     # Only the user being challenged may press the buttons.
     if callback.from_user.id != int(target_id):
@@ -84,15 +73,10 @@ async def on_captcha_answer(callback: CallbackQuery, bot: Bot, redis: Redis) -> 
         return
 
     chat_id = callback.message.chat.id
-    # GETDEL consumes the challenge atomically: a second press or a replayed
-    # callback finds nothing.
-    pending = await redis.getdel(_pending_key(chat_id, callback.from_user.id))
-    message_id, _, answer = (pending or "").partition(":")
-    if not pending or message_id != str(callback.message.message_id):
-        await callback.answer("Эта проверка уже недействительна.", show_alert=True)
-        return
+    key = _pending_key(chat_id, callback.from_user.id)
 
     if choice == answer:
+        await redis.delete(key)
         await unmute_user(bot, chat_id, callback.from_user.id)
         await callback.message.delete()
         await callback.answer("✅ Добро пожаловать!")
@@ -100,6 +84,7 @@ async def on_captcha_answer(callback: CallbackQuery, bot: Bot, redis: Redis) -> 
         # Wrong answer: keep the user muted (do not kick). They stay in the chat
         # but cannot write until they pass a fresh captcha — obtained by leaving
         # and rejoining the chat.
+        await redis.delete(key)
         await callback.message.delete()
         await callback.answer(
             "❌ Неверно. Вы останетесь без права писать. "
