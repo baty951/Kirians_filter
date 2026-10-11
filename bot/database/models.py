@@ -145,6 +145,17 @@ class BannedWord(Base):
     chat: Mapped["Chat | None"] = relationship(back_populates="banned_words")
 
 
+class ApprovedUser(Base):
+    """A member trusted by the admins: automatic moderation skips them."""
+
+    __tablename__ = "approved_users"
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    approved_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MemberJoin(Base):
     """When a member last joined a chat; rejoining resets it. Drives newbie mode."""
 
