@@ -20,6 +20,10 @@ class Chat(Base):
     filter_badwords: Mapped[bool] = mapped_column(Boolean, default=True)
     filter_links: Mapped[bool] = mapped_column(Boolean, default=False)
     filter_mentions: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Newbie mode: non-text content is deleted for members who joined less than newbie_hours ago.
+    filter_newbie: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Repeated identical text from one sender inside duplicate_window_seconds is deleted.
+    filter_duplicates: Mapped[bool] = mapped_column(Boolean, default=False)
     filter_media: Mapped[bool] = mapped_column(Boolean, default=False)
     filter_language: Mapped[bool] = mapped_column(Boolean, default=False)
     antiflood_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -29,6 +33,8 @@ class Chat(Base):
     # Tunables
     warn_limit: Mapped[int] = mapped_column(Integer, default=3)
     mute_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    newbie_hours: Mapped[int] = mapped_column(Integer, default=24)
+    duplicate_window_seconds: Mapped[int] = mapped_column(Integer, default=300)
     warn_ttl_days: Mapped[int] = mapped_column(Integer, default=30)
     ban_after_mutes: Mapped[int] = mapped_column(Integer, default=3)
     flood_mute_minutes: Mapped[int] = mapped_column(Integer, default=10)
@@ -38,6 +44,8 @@ class Chat(Base):
     warn_on_badwords: Mapped[bool] = mapped_column(Boolean, default=False)
     warn_on_links: Mapped[bool] = mapped_column(Boolean, default=False)
     warn_on_mentions: Mapped[bool] = mapped_column(Boolean, default=False)
+    warn_on_newbie: Mapped[bool] = mapped_column(Boolean, default=False)
+    warn_on_duplicates: Mapped[bool] = mapped_column(Boolean, default=False)
     warn_on_media: Mapped[bool] = mapped_column(Boolean, default=False)
     warn_on_language: Mapped[bool] = mapped_column(Boolean, default=False)
     warn_on_flood: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -132,3 +140,13 @@ class BannedWord(Base):
     is_regex: Mapped[bool] = mapped_column(Boolean, default=False)
 
     chat: Mapped["Chat | None"] = relationship(back_populates="banned_words")
+
+
+class MemberJoin(Base):
+    """When a member last joined a chat; rejoining resets it. Drives newbie mode."""
+
+    __tablename__ = "member_joins"
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

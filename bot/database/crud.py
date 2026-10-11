@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from bot.database.models import ActionLog, BannedWord, CaptchaChallenge, Chat, StoredMessage, Warning
+from bot.database.models import ActionLog, BannedWord, CaptchaChallenge, Chat, MemberJoin, StoredMessage, Warning
 
 
 async def get_or_create_chat(session: AsyncSession, chat_id: int, title: str | None = None) -> Chat:
@@ -210,4 +210,23 @@ async def cancel_captcha(session: AsyncSession, chat_id: int, user_id: int) -> N
 async def purge_archives(session: AsyncSession, before: datetime) -> None:
     for model in (StoredMessage, ActionLog):
         await session.execute(delete(model).where(model.created_at < before))
+    await session.execute(delete(MemberJoin).where(MemberJoin.joined_at < before))
     await session.commit()
+
+
+async def record_join(session: AsyncSession, chat_id: int, user_id: int) -> None:
+    """Remember (or reset, on rejoin) when the member joined."""
+    now = datetime.now(timezone.utc)
+    await session.execute(
+        pg_insert(MemberJoin).values(chat_id=chat_id, user_id=user_id, joined_at=now)
+        .on_conflict_do_update(index_elements=["chat_id", "user_id"], set_={"joined_at": now})
+    )
+    await session.commit()
+
+
+async def is_newbie(session: AsyncSession, chat_id: int, user_id: int, hours: int) -> bool:
+    """True if the member joined within `hours`; members with no recorded join are not newbies."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    return await session.scalar(select(MemberJoin.user_id).where(
+        MemberJoin.chat_id == chat_id, MemberJoin.user_id == user_id, MemberJoin.joined_at >= since,
+    )) is not None

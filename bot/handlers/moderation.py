@@ -6,7 +6,7 @@ from aiogram.enums import ChatType
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.database.crud import count_recent_actions, get_banned_words_cached, get_or_create_chat
+from bot.database.crud import count_recent_actions, get_banned_words_cached, get_or_create_chat, is_newbie
 from bot.filters.content import contains_link, contains_mention, find_banned_word, parse_domains
 from bot.filters.language import detect_blocked_script, parse_scripts
 from bot.middlewares.admin_check import is_user_admin
@@ -14,8 +14,16 @@ from bot.utils.actions import log_action, mute_user, safe_call, warn_user
 from bot.utils.helpers import is_protected, mention, restriction_lock
 
 
+_MEDIA_FIELDS = (
+    "photo", "video", "animation", "sticker", "document", "audio", "voice",
+    "video_note", "paid_media", "story", "live_photo",
+)
+# Newbies may only write text: everything else is deleted for their first newbie_hours.
+_NON_TEXT_FIELDS = (*_MEDIA_FIELDS, "forward_origin", "poll", "contact", "location", "venue", "dice", "game")
+
+
 async def auto_moderate(
-    message: Message, bot: Bot, session: AsyncSession, flooding: bool = False,
+    message: Message, bot: Bot, session: AsyncSession, flooding: bool = False, duplicate: bool = False,
 ) -> bool:
     """Return True when a forbidden message is consumed, even if deletion fails."""
     if message.chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL):
@@ -57,15 +65,18 @@ async def auto_moderate(
         reason, kind = "link", "links"
     if reason is None and chat.filter_mentions and contains_mention(text, entities):
         reason, kind = "mention", "mentions"
-    if reason is None and chat.filter_media and any(getattr(message, field, None) for field in (
-        "photo", "video", "animation", "sticker", "document", "audio", "voice",
-        "video_note", "paid_media", "story", "live_photo",
-    )):
+    if reason is None and chat.filter_duplicates and duplicate:
+        reason, kind = "duplicate", "duplicates"
+    if reason is None and chat.filter_media and any(getattr(message, field, None) for field in _MEDIA_FIELDS):
         reason, kind = "media", "media"
     if reason is None and chat.filter_language and text and chat.blocked_scripts:
         script = detect_blocked_script(text, parse_scripts(chat.blocked_scripts))
         if script:
             reason, kind = f"lang «{script}»", "language"
+    if (reason is None and chat.filter_newbie and sender is None and message.chat.type != ChatType.CHANNEL
+            and any(getattr(message, field, None) for field in _NON_TEXT_FIELDS)
+            and await is_newbie(session, message.chat.id, target_id, chat.newbie_hours)):
+        reason, kind = "newbie", "newbie"
     if reason is None:
         return False
 

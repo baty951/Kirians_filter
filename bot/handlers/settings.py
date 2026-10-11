@@ -20,6 +20,8 @@ TOGGLES: dict[str, str] = {
     "filter_links": "Фильтр ссылок",
     "filter_mentions": "Фильтр @упоминаний",
     "filter_media": "Фильтр медиа",
+    "filter_newbie": "Режим новичка",
+    "filter_duplicates": "Фильтр дубликатов",
     "filter_language": "Фильтр языков",
     "antiflood_enabled": "Антифлуд",
     "captcha_enabled": "Капча",
@@ -28,6 +30,8 @@ TOGGLES: dict[str, str] = {
     "warn_on_links": "Варн: ссылки",
     "warn_on_mentions": "Варн: упоминания",
     "warn_on_media": "Варн: медиа",
+    "warn_on_newbie": "Варн: новичок",
+    "warn_on_duplicates": "Варн: дубликаты",
     "warn_on_language": "Варн: языки",
     "warn_on_flood": "Варн: флуд",
 }
@@ -36,6 +40,8 @@ TOGGLES: dict[str, str] = {
 NUMBERS: dict[str, tuple[str, tuple[int, ...]]] = {
     "warn_limit": ("Лимит варнов", tuple(range(1, 11))),
     "mute_minutes": ("Мут, мин", (1, 5, 10, 15, 30, 60, 120, 360, 720, 1440, 4320, 10080, 43200, 525600)),
+    "newbie_hours": ("Новичок, ч", (1, 6, 12, 24, 48, 72, 168)),
+    "duplicate_window_seconds": ("Дубликаты: окно, с", (30, 60, 120, 300, 600, 1800, 3600)),
     "warn_ttl_days": ("Срок варна, дн", (1, 3, 7, 14, 30, 60, 90, 180, 365)),
     "ban_after_mutes": ("Мутов до бана", tuple(range(1, 11))),
     "antiflood_messages": ("Флуд: сообщений", (*range(2, 11), 15, 20, 30)),

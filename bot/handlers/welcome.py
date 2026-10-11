@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from config import get_settings
-from bot.database.crud import cancel_captcha, get_or_create_chat
+from bot.database.crud import cancel_captcha, get_or_create_chat, record_join
 from bot.database.models import ActionLog, CaptchaChallenge
 from bot.utils.actions import MUTED_PERMISSIONS, UNMUTED_PERMISSIONS, safe_call
 from bot.utils.captcha import build_captcha
@@ -45,6 +45,7 @@ async def on_join(message: Message, bot: Bot, session: AsyncSession) -> None:
     for user in message.new_chat_members:
         if user.is_bot or is_protected(user.id, bot):
             continue
+        await record_join(session, message.chat.id, user.id)
         if not chat.captcha_enabled or message.chat.type != ChatType.SUPERGROUP:
             if chat.welcome_enabled:
                 text = chat.welcome_text or "👋 Добро пожаловать, {name}!"
@@ -166,6 +167,9 @@ async def on_external_restriction(event: ChatMemberUpdated, bot: Bot, session: A
     )
     new = event.new_chat_member
     left = new.status == "left" or (new.status == "restricted" and not new.is_member)
+    is_member = new.status in ("member", "administrator", "creator") or (new.status == "restricted" and new.is_member)
+    if is_member and not was_member and not new.user.is_bot:  # joins hidden from the service message (large groups)
+        await record_join(session, event.chat.id, new.user.id)
     if event.from_user.id != bot.id and was_member and not left:
         async with restriction_lock(event.chat.id, event.new_chat_member.user.id):
             await cancel_captcha(session, event.chat.id, event.new_chat_member.user.id)
