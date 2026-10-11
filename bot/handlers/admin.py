@@ -1,5 +1,4 @@
 import json
-from datetime import timedelta
 from html import escape
 
 from aiogram import Bot, Router
@@ -10,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.crud import (
     add_banned_word,
-    add_warning,
     count_warnings,
     get_or_create_chat,
     remove_banned_word,
@@ -29,6 +27,7 @@ from bot.utils.actions import (
     safe_call,
     unban_user,
     unmute_user,
+    warn_user,
 )
 from bot.utils.helpers import extract_target_and_reason, is_protected, parse_duration
 
@@ -80,35 +79,24 @@ async def cmd_warn(message: Message, bot: Bot, session: AsyncSession) -> None:
     if not await _valid_reason(message, reason):
         return
     chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
-    total = await add_warning(session, message.chat.id, target_id, message.from_user.id if message.from_user else None, reason)
-
-    if total >= chat.warn_limit:
-        err = await mute_user(bot, message.chat.id, target_id, timedelta(minutes=chat.mute_minutes), session=session)
-        if err:
-            await _log_failure(message, bot, session, "WARN_MUTE", target_id, err)
-            await message.reply(
-                f"⚠️ Лимит {total}/{chat.warn_limit} достигнут, но заглушить не удалось: "
-                f"{humanize_error(err)}."
-            )
-            return
-        await reset_warnings(session, message.chat.id, target_id)
-        await message.reply(
-            f"🔇 Пользователь набрал {total}/{chat.warn_limit} предупреждений "
-            f"и заглушен на {chat.mute_minutes} мин."
-        )
-        await log_action(
-            bot, session, message.chat.id,
-            f"WARN→MUTE: user {target_id}, причина: {reason or '—'}",
-            action="WARN_MUTE", actor_id=message.from_user.id if message.from_user else None, target_id=target_id, reason=reason,
-        )
-    else:
+    action, total, err = await warn_user(
+        bot, session, message.chat.id, target_id,
+        actor_id=message.from_user.id if message.from_user else None, reason=reason,
+    )
+    if action == "WARN":
         await message.reply(
             f"⚠️ Предупреждение {total}/{chat.warn_limit}." + (f"\nПричина: {escape(reason)}" if reason else "")
         )
-        await log_action(
-            bot, session, message.chat.id,
-            f"WARN {total}: user {target_id}, причина: {reason or '—'}",
-            action="WARN", actor_id=message.from_user.id if message.from_user else None, target_id=target_id, reason=reason,
+    elif err:
+        what = "забанить" if action == "WARN_BAN" else "заглушить"
+        await message.reply(
+            f"⚠️ Лимит {total}/{chat.warn_limit} достигнут, но {what} не удалось: {humanize_error(err)}."
+        )
+    elif action == "WARN_BAN":
+        await message.reply("🔨 Пользователь забанен за повторные нарушения")
+    else:
+        await message.reply(
+            f"🔇 Пользователь набрал {total}/{chat.warn_limit} предупреждений и заглушен."
         )
 
 

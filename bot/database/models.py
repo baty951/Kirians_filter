@@ -28,6 +28,17 @@ class Chat(Base):
     # Tunables
     warn_limit: Mapped[int] = mapped_column(Integer, default=3)
     mute_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    warn_ttl_days: Mapped[int] = mapped_column(Integer, default=30)
+    ban_after_mutes: Mapped[int] = mapped_column(Integer, default=3)
+    flood_mute_minutes: Mapped[int] = mapped_column(Integer, default=10)
+    antiflood_messages: Mapped[int] = mapped_column(Integer, default=5)
+    antiflood_window_seconds: Mapped[int] = mapped_column(Integer, default=5)
+    # Per-filter: also issue a warning (with mute/ban escalation) on top of deleting.
+    warn_on_badwords: Mapped[bool] = mapped_column(Boolean, default=False)
+    warn_on_links: Mapped[bool] = mapped_column(Boolean, default=False)
+    warn_on_media: Mapped[bool] = mapped_column(Boolean, default=False)
+    warn_on_language: Mapped[bool] = mapped_column(Boolean, default=False)
+    warn_on_flood: Mapped[bool] = mapped_column(Boolean, default=False)
     welcome_text: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     log_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # Comma-separated script names to block when filter_language is on.

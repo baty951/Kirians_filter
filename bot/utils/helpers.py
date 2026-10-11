@@ -12,12 +12,13 @@ from config import get_settings
 # Matches "30m", "2h", "1d", "10s" → timedelta. Bare number = minutes.
 _DURATION_RE = re.compile(r"^(\d+)\s*([smhd]?)$", re.IGNORECASE)
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "": 60}
-_RESTRICTION_LOCKS: WeakValueDictionary[tuple[int, int], Lock] = WeakValueDictionary()
+_RESTRICTION_LOCKS: WeakValueDictionary[tuple[str, int, int], Lock] = WeakValueDictionary()
 
 
-def restriction_lock(chat_id: int, user_id: int) -> Lock:
+def restriction_lock(chat_id: int, user_id: int, scope: str = "") -> Lock:
     # shortcut: one polling process; use DB locks before running multiple workers.
-    key = (chat_id, user_id)
+    # Locks are not re-entrant: callers holding a scoped lock must not take the same scope again.
+    key = (scope, chat_id, user_id)
     lock = _RESTRICTION_LOCKS.get(key)
     if lock is None:
         lock = Lock()

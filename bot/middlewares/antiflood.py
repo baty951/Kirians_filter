@@ -8,7 +8,6 @@ from aiogram.types import Message
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
-from config import get_settings
 from bot.database.crud import get_or_create_chat
 
 logger = logging.getLogger(__name__)
@@ -34,9 +33,6 @@ class AntiFloodMiddleware(BaseMiddleware):
 
     def __init__(self, redis: Redis) -> None:
         self.redis = redis
-        settings = get_settings()
-        self.limit = settings.antiflood_messages
-        self.window = settings.antiflood_window_seconds
 
     async def __call__(
         self, handler: Callable[[Message, dict[str, Any]], Awaitable[Any]],
@@ -54,11 +50,11 @@ class AntiFloodMiddleware(BaseMiddleware):
         try:
             count = await self.redis.eval(
                 _SLIDING_WINDOW, 1, f"flood:v2:{event.chat.id}:{sender.id}",
-                self.window * 1000, self.limit, str(event.message_id),
+                chat.antiflood_window_seconds * 1000, chat.antiflood_messages, str(event.message_id),
             )
         except RedisError:
             logger.exception("Anti-flood unavailable; continuing content checks")
             count = 0
         data["flood_count"] = count
-        data["flooding"] = count > self.limit
+        data["flooding"] = count > chat.antiflood_messages
         return await handler(event, data)

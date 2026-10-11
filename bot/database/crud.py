@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -17,6 +17,11 @@ async def get_or_create_chat(session: AsyncSession, chat_id: int, title: str | N
             title=title,
             warn_limit=settings.default_warn_limit,
             mute_minutes=settings.default_mute_minutes,
+            warn_ttl_days=settings.default_warn_ttl_days,
+            ban_after_mutes=settings.default_ban_after_mutes,
+            flood_mute_minutes=settings.default_flood_mute_minutes,
+            antiflood_messages=settings.antiflood_messages,
+            antiflood_window_seconds=settings.antiflood_window_seconds,
         ).on_conflict_do_nothing(index_elements=["chat_id"])
         await session.execute(stmt)
         await session.commit()
@@ -39,10 +44,28 @@ async def add_warning(
 
 
 async def count_warnings(session: AsyncSession, chat_id: int, user_id: int) -> int:
+    """Count live warnings only: older than the chat's TTL they are ignored."""
+    chat = await get_or_create_chat(session, chat_id)
+    since = datetime.now(timezone.utc) - timedelta(days=chat.warn_ttl_days)
     result = await session.scalar(
-        select(func.count(Warning.id)).where(Warning.chat_id == chat_id, Warning.user_id == user_id)
+        select(func.count(Warning.id)).where(
+            Warning.chat_id == chat_id, Warning.user_id == user_id, Warning.created_at >= since,
+        )
     )
     return result or 0
+
+
+async def count_recent_actions(
+    session: AsyncSession, chat_id: int, target_id: int, actions: tuple[str, ...],
+    since: datetime, actor_id: int | None = None,
+) -> int:
+    stmt = select(func.count(ActionLog.id)).where(
+        ActionLog.chat_id == chat_id, ActionLog.target_id == target_id,
+        ActionLog.action.in_(actions), ActionLog.created_at >= since,
+    )
+    if actor_id is not None:
+        stmt = stmt.where(ActionLog.actor_id == actor_id)
+    return await session.scalar(stmt) or 0
 
 
 async def reset_warnings(session: AsyncSession, chat_id: int, user_id: int) -> None:

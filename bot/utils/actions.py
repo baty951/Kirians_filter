@@ -7,7 +7,9 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import ChatPermissions
 
-from bot.database.crud import add_log, cancel_captcha, get_or_create_chat
+from bot.database.crud import (
+    add_log, add_warning, cancel_captcha, count_recent_actions, get_or_create_chat, reset_warnings,
+)
 from bot.utils.helpers import restriction_lock
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -161,3 +163,61 @@ async def log_action(
             await bot.send_message(chat.log_channel_id, text, parse_mode=None)
         except TelegramAPIError:
             logger.exception("Could not send moderation log to %s", chat.log_channel_id)
+
+
+async def warn_user(
+    bot: Bot, session: AsyncSession, chat_id: int, user_id: int, *,
+    actor_id: int | None, reason: str | None,
+) -> tuple[str, int, str | None]:
+    """Warn and escalate: warning -> mute at the limit -> ban once mutes repeat.
+
+    Returns (action, total, error); action is SKIP / WARN / WARN_MUTE / WARN_BAN
+    (a *_FAILED escalation keeps the WARN_* action and sets ``error``).
+    """
+    # Own lock scope: mute_user/ban_user take the default lock and Lock is not re-entrant.
+    async with restriction_lock(chat_id, user_id, "warn"):
+        now = datetime.now(timezone.utc)
+        if actor_id == bot.id:
+            # ponytail: 1 auto-warn/min/user, per-filter cooldown if needed
+            if await count_recent_actions(
+                session, chat_id, user_id, ("WARN", "WARN_MUTE", "WARN_BAN", "WARN_MUTE_FAILED", "WARN_BAN_FAILED"),
+                now - timedelta(seconds=60), actor_id=bot.id,
+            ):
+                return "SKIP", 0, None
+        chat = await get_or_create_chat(session, chat_id)
+        total = await add_warning(session, chat_id, user_id, actor_id, reason)
+        if total < chat.warn_limit:
+            await log_action(
+                bot, session, chat_id, f"WARN {total}: user {user_id}, причина: {reason or '—'}",
+                action="WARN", actor_id=actor_id, target_id=user_id, reason=reason,
+            )
+            return "WARN", total, None
+        # ponytail: window shrinks if ARCHIVE_RETENTION_DAYS < 30
+        mutes = await count_recent_actions(
+            session, chat_id, user_id, ("WARN_MUTE",), now - timedelta(days=30),
+        )
+        if mutes >= chat.ban_after_mutes:
+            action, label = "WARN_BAN", "BAN"
+            error = await ban_user(bot, chat_id, user_id, session=session)
+        else:
+            action, label = "WARN_MUTE", "MUTE"
+            minutes = chat.mute_minutes
+            # A warn mute must never shorten a flood mute that is still running.
+            if await count_recent_actions(
+                session, chat_id, user_id, ("FLOOD_MUTE",), now - timedelta(minutes=chat.flood_mute_minutes),
+            ):
+                minutes = max(minutes, chat.flood_mute_minutes)
+            error = await mute_user(bot, chat_id, user_id, timedelta(minutes=minutes), session=session)
+        if error:
+            await log_action(
+                bot, session, chat_id, f"{action}_FAILED: user {user_id}, ошибка: {error}",
+                action=f"{action}_FAILED", actor_id=actor_id, target_id=user_id,
+                reason=reason, content=error,
+            )
+            return action, total, error
+        await reset_warnings(session, chat_id, user_id)
+        await log_action(
+            bot, session, chat_id, f"WARN→{label}: user {user_id}, причина: {reason or '—'}",
+            action=action, actor_id=actor_id, target_id=user_id, reason=reason,
+        )
+        return action, total, None
