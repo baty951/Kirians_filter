@@ -28,6 +28,7 @@ class Chat(Base):
     filter_language: Mapped[bool] = mapped_column(Boolean, default=False)
     antiflood_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     captcha_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    captcha_attempts: Mapped[int] = mapped_column(Integer, default=3)
     welcome_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Tunables
@@ -125,6 +126,8 @@ class CaptchaChallenge(Base):
     answer: Mapped[int] = mapped_column(Integer)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Wrong answers left before the challenge fails (each wrong answer gets a new question).
+    attempts_left: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class BannedWord(Base):

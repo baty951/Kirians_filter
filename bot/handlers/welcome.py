@@ -75,6 +75,7 @@ async def on_join(message: Message, bot: Bot, session: AsyncSession) -> None:
             old_message_id = challenge.message_id
             challenge.message_id, challenge.answer = sent.message_id, answer
             challenge.expires_at, challenge.active = expires_at, True
+            challenge.attempts_left = chat.captcha_attempts
             try:
                 await session.commit()
             except Exception:
@@ -128,8 +129,23 @@ async def on_captcha_answer(callback: CallbackQuery, bot: Bot, session: AsyncSes
                 or challenge.message_id != callback.message.message_id):
             await callback.answer("Эта проверка уже недействительна.", show_alert=True)
             return
+        if choice != challenge.answer and challenge.attempts_left > 1:
+            # Same message_id, so the live-challenge check above still binds the buttons to this row.
+            question, keyboard, new_answer = build_captcha(target_id)
+            error = await safe_call(callback.message.edit_text(
+                f"{mention(callback.from_user)}, {question}", reply_markup=keyboard,
+            ))
+            if error:  # attempt not consumed: the buttons on screen still match the stored answer
+                await callback.answer("Не удалось обновить вопрос. Попробуйте ещё раз.", show_alert=True)
+                return
+            challenge.attempts_left -= 1
+            challenge.answer = new_answer
+            await session.commit()
+            await callback.answer(f"❌ Неверно. Осталось попыток: {challenge.attempts_left}.", show_alert=True)
+            return
         if choice != challenge.answer:
             challenge.active = False
+            challenge.attempts_left = 0
             await session.commit()
             await safe_call(callback.message.delete())
             await callback.answer(

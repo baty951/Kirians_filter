@@ -207,6 +207,15 @@ async def cancel_captcha(session: AsyncSession, chat_id: int, user_id: int) -> N
     await session.commit()
 
 
+async def failed_captchas(session: AsyncSession, chat_id: int, limit: int = 30) -> list[CaptchaChallenge]:
+    """Members who failed or missed the captcha and are still muted (active challenges are not listed)."""
+    return list(await session.scalars(
+        select(CaptchaChallenge)
+        .where(CaptchaChallenge.chat_id == chat_id, CaptchaChallenge.active.is_(False))
+        .order_by(CaptchaChallenge.expires_at.desc()).limit(limit)
+    ))
+
+
 async def purge_archives(session: AsyncSession, before: datetime) -> None:
     for model in (StoredMessage, ActionLog):
         await session.execute(delete(model).where(model.created_at < before))

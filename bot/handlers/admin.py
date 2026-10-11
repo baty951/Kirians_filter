@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.database.crud import (
     add_banned_word,
     count_warnings,
+    failed_captchas,
     get_or_create_chat,
     remove_banned_word,
     reset_warnings,
@@ -449,6 +450,21 @@ async def cmd_allowlang(message: Message, bot: Bot, session: AsyncSession) -> No
     remaining = sorted(set(parse_scripts(chat.blocked_scripts)) - set(valid))
     await update_chat_setting(session, message.chat.id, "blocked_scripts", ",".join(remaining) or None)
     await message.reply(f"🌐 Теперь блокируются: {', '.join(remaining) or '—'}")
+
+
+@router.message(Command("pending"))
+async def cmd_pending(message: Message, bot: Bot, session: AsyncSession) -> None:
+    if not await _guard(message, bot):
+        return
+    rows = await failed_captchas(session, message.chat.id)
+    if not rows:
+        await message.reply("Нет участников, не прошедших капчу.")
+        return
+    lines = [f'• <a href="tg://user?id={row.user_id}">{row.user_id}</a> — {row.expires_at:%d.%m %H:%M}' for row in rows]
+    await message.reply(
+        "🤖 Не прошли капчу и остаются в муте (последние 30):\n" + "\n".join(lines)
+        + "\nСнять ограничение: /unmute &lt;ID&gt;"
+    )
 
 
 @router.channel_post(Command("setlog"))
