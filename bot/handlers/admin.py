@@ -16,6 +16,7 @@ from bot.database.crud import (
     update_chat_setting,
     validate_reason,
 )
+from bot.filters.content import fold, normalize_domain, parse_domains
 from bot.filters.language import SCRIPT_RANGES, normalize_scripts, parse_scripts
 from bot.middlewares.admin_check import is_user_admin
 from bot.utils.actions import (
@@ -303,6 +304,12 @@ async def cmd_addword(message: Message, bot: Bot, session: AsyncSession) -> None
     if not word or len(word) > 256:
         await message.reply("Слово или фраза должны содержать от 1 до 256 символов.")
         return
+    if not fold(word).strip():
+        await message.reply("Слово состоит только из невидимых символов.")
+        return
+    if "\n" in word:
+        await message.reply("Слово или фраза должны быть в одной строке.")
+        return
     await add_banned_word(session, message.chat.id, word)
     await message.reply(f"✅ Слово добавлено в фильтр: «{escape(word)}»")
 
@@ -318,6 +325,77 @@ async def cmd_delword(message: Message, bot: Bot, session: AsyncSession) -> None
         return
     removed = await remove_banned_word(session, message.chat.id, parts[1].strip())
     await message.reply("🗑 Удалено." if removed else "Слово не найдено в фильтре этого чата.")
+
+
+MAX_DOMAINS = 50
+
+
+def _split_domains(message: Message) -> tuple[list[str], list[str]]:
+    """(valid normalized domains, skipped raw args) from the command arguments."""
+    valid, skipped = [], []
+    for raw in (message.text or "").split()[1:]:
+        domain = normalize_domain(raw)
+        (valid if domain else skipped).append(domain or raw)
+    return valid, skipped
+
+
+@router.channel_post(Command("allowdomain"))
+@router.message(Command("allowdomain"))
+async def cmd_allowdomain(message: Message, bot: Bot, session: AsyncSession) -> None:
+    if not await _guard(message, bot):
+        return
+    valid, skipped = _split_domains(message)
+    if not valid:
+        await message.reply(
+            "Использование: /allowdomain <домен> [...]\nНапр.: /allowdomain youtube.com"
+            + (f"\n⚠️ Пропущено (неверный домен): {escape(', '.join(skipped)[:1000])}" if skipped else "")
+        )
+        return
+    chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
+    merged = sorted(set(parse_domains(chat.allowed_domains)) | set(valid))
+    if len(merged) > MAX_DOMAINS:
+        await message.reply(f"⚠️ Слишком много доменов: максимум {MAX_DOMAINS}.")
+        return
+    await update_chat_setting(session, message.chat.id, "allowed_domains", ",".join(merged))
+    text = f"🔗 Разрешённые домены: {escape(', '.join(merged))[:2000]}"
+    if skipped:
+        text += f"\n⚠️ Пропущено (неверный домен): {escape(', '.join(skipped)[:1000])}"
+    if not chat.filter_links:
+        text += "\nℹ️ Фильтр ссылок выключен — включите его в /settings."
+    await message.reply(text)
+
+
+@router.channel_post(Command("denydomain"))
+@router.message(Command("denydomain"))
+async def cmd_denydomain(message: Message, bot: Bot, session: AsyncSession) -> None:
+    if not await _guard(message, bot):
+        return
+    valid, skipped = _split_domains(message)
+    if not valid:
+        await message.reply(
+            "Использование: /denydomain <домен> [...]"
+            + (f"\n⚠️ Пропущено (неверный домен): {escape(', '.join(skipped)[:1000])}" if skipped else "")
+        )
+        return
+    chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
+    remaining = sorted(set(parse_domains(chat.allowed_domains)) - set(valid))
+    await update_chat_setting(session, message.chat.id, "allowed_domains", ",".join(remaining) or None)
+    text = f"🔗 Разрешённые домены: {escape(', '.join(remaining))[:2000] or '—'}"
+    if skipped:
+        text += f"\n⚠️ Пропущено (неверный домен): {escape(', '.join(skipped)[:1000])}"
+    await message.reply(text)
+
+
+@router.channel_post(Command("domains"))
+@router.message(Command("domains"))
+async def cmd_domains(message: Message, bot: Bot, session: AsyncSession) -> None:
+    chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
+    state = "вкл" if chat.filter_links else "выкл"
+    await message.reply(
+        f"🔗 Фильтр ссылок: <b>{state}</b>\n"
+        f"Разрешённые домены: {escape(', '.join(parse_domains(chat.allowed_domains)))[:2000] or '—'}\n\n"
+        "Использование: /allowdomain youtube.com — добавить, /denydomain youtube.com — убрать."
+    )
 
 
 @router.channel_post(Command("langs"))

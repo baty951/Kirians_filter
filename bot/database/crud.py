@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, select
@@ -122,6 +123,41 @@ async def add_log(
     await session.commit()
 
 
+# ponytail: per-process cache, single polling instance; Redis pub/sub if scaled out
+_WORDS_TTL = 60.0
+# key: chat_id, or None for the global list (stored once, not per chat)
+_words_cache: dict[int | None, tuple[float, tuple[tuple[str, bool], ...]]] = {}
+_words_gen = 0
+
+
+def invalidate_banned_words(chat_id: int | None) -> None:
+    """Drop cached words for a chat; None (global words) clears everything."""
+    global _words_gen
+    _words_gen += 1
+    if chat_id is None:
+        _words_cache.clear()
+    else:
+        _words_cache.pop(chat_id, None)
+
+
+async def _cached_words(session: AsyncSession, chat_id: int | None) -> tuple[tuple[str, bool], ...]:
+    hit = _words_cache.get(chat_id)
+    if hit and time.monotonic() - hit[0] < _WORDS_TTL:
+        return hit[1]
+    generation = _words_gen
+    where = BannedWord.chat_id.is_(None) if chat_id is None else BannedWord.chat_id == chat_id
+    rows = await session.scalars(select(BannedWord).where(where))
+    words = tuple((w.pattern, w.is_regex) for w in rows)
+    if generation == _words_gen:  # a writer invalidated meanwhile: don't store stale words
+        _words_cache[chat_id] = (time.monotonic(), words)
+    return words
+
+
+async def get_banned_words_cached(session: AsyncSession, chat_id: int) -> tuple[tuple[str, bool], ...]:
+    """(pattern, is_regex) pairs for a chat plus global words, cached for _WORDS_TTL seconds."""
+    return await _cached_words(session, chat_id) + await _cached_words(session, None)
+
+
 async def get_banned_words(session: AsyncSession, chat_id: int) -> list[BannedWord]:
     """Words specific to this chat plus global words (chat_id IS NULL)."""
     result = await session.scalars(
@@ -141,6 +177,7 @@ async def add_banned_word(
         await get_or_create_chat(session, chat_id)
     session.add(BannedWord(chat_id=chat_id, pattern=pattern, is_regex=is_regex))
     await session.commit()
+    invalidate_banned_words(chat_id)
 
 
 async def remove_banned_word(session: AsyncSession, chat_id: int | None, pattern: str) -> int:
@@ -148,6 +185,7 @@ async def remove_banned_word(session: AsyncSession, chat_id: int | None, pattern
         delete(BannedWord).where(BannedWord.chat_id == chat_id, BannedWord.pattern == pattern)
     )
     await session.commit()
+    invalidate_banned_words(chat_id)
     return result.rowcount or 0
 
 

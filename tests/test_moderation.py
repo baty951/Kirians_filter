@@ -157,6 +157,10 @@ class DispatcherTests(DatabaseCase):
         async with self.sessions() as session:
             return getattr(await get_or_create_chat(session, CHAT_ID), field)
 
+    async def test_toggle_mentions_button(self):
+        await self.press("set:filter_mentions")
+        self.assertTrue(await self.value("filter_mentions"))
+
     async def test_number_buttons_step_the_ladder(self):
         await self.enable(mute_minutes=45)  # not on the ladder
         await self.press("num:mute_minutes:+")

@@ -14,6 +14,7 @@ from aiogram.types import Chat, Message, MessageEntity, User
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from bot.database.crud import invalidate_banned_words
 from bot.database.models import Base
 from bot.utils.actions import MUTED_PERMISSIONS
 
@@ -88,6 +89,7 @@ class TelegramSession(BaseSession):
 
 class DatabaseCase(IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        invalidate_banned_words(None)  # tests share CHAT_ID; the cache is process-wide
         self.engine = create_async_engine("sqlite+aiosqlite:///:memory:")
 
         @event.listens_for(self.engine.sync_engine, "connect")

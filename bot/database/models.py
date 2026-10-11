@@ -19,6 +19,7 @@ class Chat(Base):
     # Feature toggles
     filter_badwords: Mapped[bool] = mapped_column(Boolean, default=True)
     filter_links: Mapped[bool] = mapped_column(Boolean, default=False)
+    filter_mentions: Mapped[bool] = mapped_column(Boolean, default=False)
     filter_media: Mapped[bool] = mapped_column(Boolean, default=False)
     filter_language: Mapped[bool] = mapped_column(Boolean, default=False)
     antiflood_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -36,6 +37,7 @@ class Chat(Base):
     # Per-filter: also issue a warning (with mute/ban escalation) on top of deleting.
     warn_on_badwords: Mapped[bool] = mapped_column(Boolean, default=False)
     warn_on_links: Mapped[bool] = mapped_column(Boolean, default=False)
+    warn_on_mentions: Mapped[bool] = mapped_column(Boolean, default=False)
     warn_on_media: Mapped[bool] = mapped_column(Boolean, default=False)
     warn_on_language: Mapped[bool] = mapped_column(Boolean, default=False)
     warn_on_flood: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -43,6 +45,8 @@ class Chat(Base):
     log_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # Comma-separated script names to block when filter_language is on.
     blocked_scripts: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # Comma-separated domains whose links pass the link filter (max 50, punycode).
+    allowed_domains: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

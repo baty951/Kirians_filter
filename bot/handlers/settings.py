@@ -18,6 +18,7 @@ router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP, Chat
 TOGGLES: dict[str, str] = {
     "filter_badwords": "Фильтр слов",
     "filter_links": "Фильтр ссылок",
+    "filter_mentions": "Фильтр @упоминаний",
     "filter_media": "Фильтр медиа",
     "filter_language": "Фильтр языков",
     "antiflood_enabled": "Антифлуд",
@@ -25,6 +26,7 @@ TOGGLES: dict[str, str] = {
     "welcome_enabled": "Приветствие",
     "warn_on_badwords": "Варн: слова",
     "warn_on_links": "Варн: ссылки",
+    "warn_on_mentions": "Варн: упоминания",
     "warn_on_media": "Варн: медиа",
     "warn_on_language": "Варн: языки",
     "warn_on_flood": "Варн: флуд",
