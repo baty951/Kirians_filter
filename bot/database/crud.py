@@ -265,3 +265,32 @@ async def list_approved(session: AsyncSession, chat_id: int, limit: int = 50) ->
         select(ApprovedUser).where(ApprovedUser.chat_id == chat_id)
         .order_by(ApprovedUser.created_at.desc()).limit(limit)
     ))
+
+
+OFFENSE_ACTIONS = ("DELETE", "WARN", "WARN_MUTE", "WARN_BAN", "FLOOD_MUTE", "FLOOD_BAN")
+
+
+async def action_counts(session: AsyncSession, chat_id: int, since: datetime) -> list[tuple[str, int]]:
+    """Moderation events per type since `since`, most frequent first."""
+    rows = await session.execute(
+        select(ActionLog.action, func.count()).where(ActionLog.chat_id == chat_id, ActionLog.created_at >= since)
+        .group_by(ActionLog.action).order_by(func.count().desc(), ActionLog.action)
+    )
+    return [(action, count) for action, count in rows]
+
+
+async def top_offenders(session: AsyncSession, chat_id: int, since: datetime, limit: int = 5) -> list[tuple[int, int]]:
+    rows = await session.execute(
+        select(ActionLog.target_id, func.count()).where(
+            ActionLog.chat_id == chat_id, ActionLog.created_at >= since,
+            ActionLog.target_id.is_not(None), ActionLog.action.in_(OFFENSE_ACTIONS),
+        ).group_by(ActionLog.target_id).order_by(func.count().desc(), ActionLog.target_id).limit(limit)
+    )
+    return [(user_id, count) for user_id, count in rows]
+
+
+async def user_history(session: AsyncSession, chat_id: int, user_id: int, limit: int = 15) -> list[ActionLog]:
+    return list(await session.scalars(
+        select(ActionLog).where(ActionLog.chat_id == chat_id, ActionLog.target_id == user_id)
+        .order_by(ActionLog.id.desc()).limit(limit)
+    ))

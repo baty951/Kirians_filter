@@ -50,6 +50,7 @@ class Chat(Base):
     warn_on_media: Mapped[bool] = mapped_column(Boolean, default=False)
     warn_on_language: Mapped[bool] = mapped_column(Boolean, default=False)
     warn_on_flood: Mapped[bool] = mapped_column(Boolean, default=False)
+    rules_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     welcome_text: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     log_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # Comma-separated script names to block when filter_language is on.
