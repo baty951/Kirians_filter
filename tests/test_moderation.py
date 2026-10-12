@@ -1,13 +1,14 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from aiogram.types import Chat, MessageEntity, Update
+from aiogram.types import CallbackQuery, Chat, MessageEntity, Update
 from redis.exceptions import ConnectionError
 from sqlalchemy import select
 
 from bot.database.crud import add_banned_word, get_or_create_chat, purge_archives
-from bot.database.models import ActionLog, StoredMessage
-from bot.handlers.admin import cmd_addword, cmd_mute, cmd_purge, cmd_warn
+from bot.database.models import ActionLog, StoredMessage, Warning
+from bot.handlers.admin import cmd_addword, cmd_mute, cmd_purge, cmd_warn, cmd_warns
+from bot.handlers.settings import cmd_setwelcome
 from bot.handlers.moderation import auto_moderate
 from bot.filters.content import contains_link
 from bot.utils.actions import log_action
@@ -15,13 +16,17 @@ from config import get_settings
 from main import ALLOWED_UPDATES, create_dispatcher
 from support import ADMIN, CHAT_ID, USER, DatabaseCase, message
 
+SPAM = "https://spam.dev"
+
 
 class FloodCounter:
     def __init__(self):
         self.count = 0
         self.unavailable = False
+        self.calls = []
 
     async def eval(self, *args):
+        self.calls.append(args)
         if self.unavailable:
             raise ConnectionError("Redis unavailable")
         self.count += 1
@@ -39,6 +44,7 @@ class DispatcherTests(DatabaseCase):
         await super().asyncSetUp()
         type(self).current_sessions = self.sessions
         self.counter.count, self.counter.unavailable = 0, False
+        self.counter.calls.clear()
 
     async def feed(self, event, update_type="message"):
         with self.assertNoLogs("kirians_filter", level="ERROR"):
@@ -65,7 +71,8 @@ class DispatcherTests(DatabaseCase):
             await self.feed(message("/help", message_id=index))
         self.assertEqual(len(self.transport.requests("sendMessage")), get_settings().antiflood_messages)
         self.assertEqual(len(self.transport.requests("deleteMessage")), 2)
-        self.assertEqual(len(self.transport.requests("restrictChatMember")), 2)
+        # Both flagged messages are deleted, but the mute is applied once (60 s guard).
+        self.assertEqual(len(self.transport.requests("restrictChatMember")), 1)
 
     async def test_join_leave_spam_is_not_flood(self):
         for index in range(1, 9):
@@ -128,6 +135,53 @@ class DispatcherTests(DatabaseCase):
             await self.feed(message("/help"))
         self.assertEqual(self.counter.count, 0)
         self.assertEqual(len(self.transport.requests("sendMessage")), 1)
+
+    async def test_configured_flood_limit_applies(self):
+        await self.enable(antiflood_messages=2)
+        for index in range(1, 4):
+            await self.feed(message("hi", message_id=index))
+        self.assertEqual(len(self.transport.requests("deleteMessage")), 1)
+
+    async def test_flood_script_receives_per_chat_window_and_limit(self):
+        await self.enable(antiflood_messages=7, antiflood_window_seconds=12)
+        await self.feed(message("hi"))
+        _, _, _, window_ms, limit, _ = self.counter.calls[0]
+        self.assertEqual((window_ms, limit), (12000, 7))
+
+    async def press(self, data, user=ADMIN):
+        callback = CallbackQuery(id="1", from_user=user, chat_instance="x", data=data,
+                                 message=message("menu", message_id=500))
+        await self.dp.feed_update(self.bot, Update(update_id=1, callback_query=callback))
+
+    async def value(self, field):
+        async with self.sessions() as session:
+            return getattr(await get_or_create_chat(session, CHAT_ID), field)
+
+    async def test_toggle_mentions_button(self):
+        await self.press("set:filter_mentions")
+        self.assertTrue(await self.value("filter_mentions"))
+
+    async def test_number_buttons_step_the_ladder(self):
+        await self.enable(mute_minutes=45)  # not on the ladder
+        await self.press("num:mute_minutes:+")
+        self.assertEqual(await self.value("mute_minutes"), 60)
+        await self.press("num:mute_minutes:-")
+        self.assertEqual(await self.value("mute_minutes"), 30)
+        await self.press("num:warn_limit:+")
+        self.assertEqual(await self.value("warn_limit"), 4)
+        self.assertTrue(self.transport.requests("editMessageReplyMarkup"))
+
+    async def test_number_buttons_reject_bad_input(self):
+        await self.enable(warn_limit=10)
+        await self.press("num:warn_limit:-", user=USER)  # not an admin
+        await self.press("num:chat_id:+")
+        await self.press("num:warn_limit:999")
+        await self.press("num:warn_limit:+")  # top of the ladder
+        self.assertFalse(self.transport.requests("editMessageReplyMarkup"))
+        self.assertIn("предел", self.transport.requests("answerCallbackQuery")[-1].text)
+        await self.press("num:warn_limit:.")
+        self.assertEqual(await self.value("warn_limit"), 10)
+        self.assertEqual(await self.value("chat_id"), CHAT_ID)
 
 
 class ModerationTests(DatabaseCase):
@@ -237,3 +291,164 @@ class ModerationTests(DatabaseCase):
             await purge_archives(session, now - timedelta(days=90))
             self.assertEqual([r.message_id for r in await session.scalars(select(StoredMessage))], [2])
             self.assertEqual([r.action for r in await session.scalars(select(ActionLog))], ["NEW"])
+
+    async def configure(self, **fields):
+        async with self.sessions() as session:
+            chat = await get_or_create_chat(session, CHAT_ID)
+            for field, value in fields.items():
+                setattr(chat, field, value)
+            await session.commit()
+
+    async def actions(self):
+        async with self.sessions() as session:
+            return [r.action for r in await session.scalars(select(ActionLog).order_by(ActionLog.id))]
+
+    async def warning_rows(self):
+        async with self.sessions() as session:
+            return len(list(await session.scalars(select(Warning))))
+
+    async def warn(self, count=1):
+        async with self.sessions() as session:
+            for index in range(count):
+                await cmd_warn(message("/warn 42 spam", message_id=index + 1, user=ADMIN).as_(self.bot), self.bot, session)
+
+    async def test_warn_escalates_from_mute_to_ban(self):
+        await self.configure(warn_limit=2, ban_after_mutes=1)
+        await self.warn(2)
+        self.assertEqual(len(self.transport.requests("restrictChatMember")), 1)
+        self.assertFalse(self.transport.requests("banChatMember"))
+        await self.warn(2)
+        self.assertEqual(len(self.transport.requests("banChatMember")), 1)
+        self.assertEqual(await self.actions(), ["WARN", "WARN_MUTE", "WARN", "WARN_BAN"])
+        self.assertEqual(await self.warning_rows(), 0)
+
+    async def test_old_mutes_do_not_count_towards_ban(self):
+        await self.configure(warn_limit=1, ban_after_mutes=1)
+        async with self.sessions() as session:
+            session.add(ActionLog(chat_id=CHAT_ID, action="WARN_MUTE", target_id=42,
+                                  created_at=datetime.now(timezone.utc) - timedelta(days=31)))
+            await session.commit()
+        await self.warn()
+        self.assertEqual(len(self.transport.requests("restrictChatMember")), 1)
+        self.assertFalse(self.transport.requests("banChatMember"))
+
+    async def test_expired_warnings_are_not_counted(self):
+        await self.configure(warn_limit=2)
+        async with self.sessions() as session:
+            session.add(Warning(chat_id=CHAT_ID, user_id=42,
+                                created_at=datetime.now(timezone.utc) - timedelta(days=31)))
+            await session.commit()
+            await cmd_warns(message("/warns 42").as_(self.bot), self.bot, session)
+            self.assertIn(" 0 ", self.transport.requests("sendMessage")[-1].text)
+        await self.warn()  # 1/2, not a mute
+        self.assertFalse(self.transport.requests("restrictChatMember"))
+        self.assertEqual(await self.actions(), ["WARN"])
+
+    async def test_link_warning_toggle_and_cooldown(self):
+        async with self.sessions() as session:
+            await self.configure(filter_links=True)
+            await auto_moderate(message(SPAM).as_(self.bot), self.bot, session)
+            self.assertEqual(await self.warning_rows(), 0)
+            await self.configure(warn_on_links=True)
+            await auto_moderate(message(SPAM, message_id=2).as_(self.bot), self.bot, session)
+            self.assertEqual(await self.warning_rows(), 1)
+            self.assertEqual(len(self.transport.requests("sendMessage")), 1)
+            await auto_moderate(message(SPAM, message_id=3).as_(self.bot), self.bot, session)
+            self.assertEqual(await self.warning_rows(), 1)  # 60 s cooldown
+            self.assertEqual(len(self.transport.requests("deleteMessage")), 3)
+
+    async def test_flood_mute_uses_configured_minutes(self):
+        await self.configure(flood_mute_minutes=30)
+        async with self.sessions() as session:
+            await auto_moderate(message().as_(self.bot), self.bot, session, flooding=True)
+        until = self.transport.requests("restrictChatMember")[0].until_date
+        delta = until - datetime.now(timezone.utc)
+        self.assertTrue(timedelta(minutes=29) < delta <= timedelta(minutes=30))
+
+    async def test_failed_escalation_keeps_warnings(self):
+        await self.configure(filter_links=True, warn_on_links=True, warn_limit=1)
+        self.transport.failures["restrictChatMember"].append("not enough rights")
+        async with self.sessions() as session:
+            with self.assertLogs("bot.utils.actions", level="WARNING"):
+                await auto_moderate(message(SPAM).as_(self.bot), self.bot, session)
+        self.assertEqual(await self.actions(), ["DELETE", "WARN_MUTE_FAILED"])
+        self.assertEqual(await self.warning_rows(), 1)
+
+    async def test_sender_chat_is_only_deleted(self):
+        await self.configure(filter_links=True, warn_on_links=True)
+        async with self.sessions() as session:
+            sender = Chat(id=-100999, type="channel", title="Other")
+            await auto_moderate(message(SPAM, user=None, sender_chat=sender).as_(self.bot), self.bot, session)
+        self.assertEqual(len(self.transport.requests("deleteMessage")), 1)
+        self.assertEqual(await self.warning_rows(), 0)
+        self.assertFalse(self.transport.requests("restrictChatMember"))
+
+    async def test_setwelcome_escapes_limits_and_resets(self):
+        async with self.sessions() as session:
+            await cmd_setwelcome(message("/setwelcome <b>Hi</b> {name}", user=ADMIN).as_(self.bot), self.bot, session)
+            chat = await get_or_create_chat(session, CHAT_ID)
+            self.assertEqual(chat.welcome_text, "&lt;b&gt;Hi&lt;/b&gt; {name}")
+            await cmd_setwelcome(message("/setwelcome " + "<" * 300, user=ADMIN).as_(self.bot), self.bot, session)
+            self.assertEqual(chat.welcome_text, "&lt;b&gt;Hi&lt;/b&gt; {name}")
+            await cmd_setwelcome(message("/setwelcome", user=ADMIN).as_(self.bot), self.bot, session)
+            self.assertIsNone(chat.welcome_text)
+
+    async def test_flood_warn_mute_is_not_shorter_than_flood_mute(self):
+        await self.configure(warn_on_flood=True, warn_limit=1, flood_mute_minutes=30, mute_minutes=1)
+        async with self.sessions() as session:
+            await auto_moderate(message().as_(self.bot), self.bot, session, flooding=True)
+        restricts = self.transport.requests("restrictChatMember")
+        self.assertEqual(len(restricts), 2)  # flood mute, then warn mute
+        delta = restricts[-1].until_date - datetime.now(timezone.utc)
+        self.assertTrue(timedelta(minutes=29) < delta <= timedelta(minutes=30))
+
+    async def test_flood_burst_does_not_override_escalation(self):
+        await self.configure(warn_on_flood=True, warn_limit=1, flood_mute_minutes=10, mute_minutes=60)
+        async with self.sessions() as session:
+            await auto_moderate(message().as_(self.bot), self.bot, session, flooding=True)
+            await auto_moderate(message(message_id=2).as_(self.bot), self.bot, session, flooding=True)
+        restricts = self.transport.requests("restrictChatMember")
+        self.assertEqual(len(restricts), 2)
+        self.assertGreater(restricts[-1].until_date - datetime.now(timezone.utc), timedelta(minutes=59))
+        self.assertEqual(len(self.transport.requests("deleteMessage")), 2)
+
+    async def test_failed_escalation_is_not_retried_within_cooldown(self):
+        await self.configure(filter_links=True, warn_on_links=True, warn_limit=1)
+        self.transport.failures["restrictChatMember"].append("not enough rights")
+        async with self.sessions() as session:
+            with self.assertLogs("bot.utils.actions", level="WARNING"):
+                await auto_moderate(message(SPAM).as_(self.bot), self.bot, session)
+            await auto_moderate(message(SPAM, message_id=2).as_(self.bot), self.bot, session)
+        self.assertEqual(await self.warning_rows(), 1)
+        self.assertEqual(len(self.transport.requests("restrictChatMember")), 1)
+
+    async def last_restrict_minutes(self):
+        until = self.transport.requests("restrictChatMember")[-1].until_date
+        return (until - datetime.now(timezone.utc)).total_seconds() / 60
+
+    async def test_warn_mute_never_shortens_flood_mute_in_either_order(self):
+        for flood_first in (True, False):
+            with self.subTest(flood_first=flood_first):
+                self.transport.calls.clear()
+                async with self.engine.begin() as connection:
+                    await connection.execute(ActionLog.__table__.delete())
+                    await connection.execute(Warning.__table__.delete())
+                await self.configure(filter_links=True, warn_on_links=True, warn_limit=1,
+                                     flood_mute_minutes=30, mute_minutes=1)
+                async with self.sessions() as session:
+                    steps = [lambda: auto_moderate(message(SPAM, message_id=1).as_(self.bot), self.bot, session),
+                             lambda: auto_moderate(message("hi", message_id=2).as_(self.bot), self.bot, session, flooding=True)]
+                    for step in (steps if not flood_first else steps[::-1]):
+                        await step()
+                self.assertGreater(await self.last_restrict_minutes(), 29)
+
+    async def test_failed_flood_mute_does_not_extend_warn_mute(self):
+        await self.configure(filter_links=True, warn_on_links=True, warn_limit=1,
+                             flood_mute_minutes=30, mute_minutes=1)
+        self.transport.failures["restrictChatMember"].append("not enough rights")
+        async with self.sessions() as session:
+            with self.assertLogs("bot.utils.actions", level="WARNING"):
+                await auto_moderate(message("hi", message_id=1).as_(self.bot), self.bot, session, flooding=True)
+            await auto_moderate(message(SPAM, message_id=2).as_(self.bot), self.bot, session)
+        self.assertEqual(await self.actions(), ["DELETE", "FLOOD_MUTE_FAILED", "DELETE", "WARN_MUTE"])
+        self.assertLess(await self.last_restrict_minutes(), 2)

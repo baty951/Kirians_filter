@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -7,6 +8,7 @@ from sqlalchemy import select
 
 from bot.database.crud import get_or_create_chat
 from bot.database.models import ActionLog, CaptchaChallenge
+from bot.handlers.admin import cmd_pending
 from bot.handlers.welcome import expire_captchas, on_captcha_answer, on_external_restriction, on_join
 from bot.utils.actions import mute_user
 from config import Settings
@@ -14,10 +16,10 @@ from support import ADMIN, CHAT_ID, USER, DatabaseCase, message, restricted_memb
 
 
 class CaptchaTests(DatabaseCase):
-    async def challenge(self, *, message_id=100, active=True, expired=False):
+    async def challenge(self, *, message_id=100, active=True, expired=False, attempts_left=1):
         async with self.sessions() as session:
             session.add(CaptchaChallenge(chat_id=CHAT_ID, user_id=USER.id, message_id=message_id,
-                                         answer=5, active=active,
+                                         answer=5, active=active, attempts_left=attempts_left,
                                          expires_at=datetime.now(timezone.utc) + timedelta(seconds=-1 if expired else 120)))
             await session.commit()
         self.transport.members[USER.id] = restricted_member()
@@ -80,6 +82,70 @@ class CaptchaTests(DatabaseCase):
         async with self.sessions() as session:
             self.assertFalse((await session.get(CaptchaChallenge, (CHAT_ID, USER.id))).active)
         self.assertFalse(self.transport.requests("restrictChatMember"))
+
+    async def test_wrong_answer_with_attempts_left_asks_a_new_question_in_place(self):
+        await self.challenge(attempts_left=3)
+        await self.respond(answer=6)
+        async with self.sessions() as session:
+            row = await session.get(CaptchaChallenge, (CHAT_ID, USER.id))
+            self.assertTrue(row.active)
+            self.assertEqual((row.attempts_left, row.message_id), (2, 100))
+            new_answer = row.answer
+        edits = self.transport.requests("editMessageText")
+        self.assertEqual(len(edits), 1)
+        # The stored answer must be the one for the question now on screen, and offered as a button.
+        a, b = map(int, re.search(r"(\d+) \+ (\d+)", edits[0].text).groups())
+        self.assertEqual(new_answer, a + b)
+        buttons = [button.callback_data for button in edits[0].reply_markup.inline_keyboard[0]]
+        self.assertIn(f"captcha:{USER.id}:{new_answer}", buttons)
+        self.assertFalse(self.transport.requests("deleteMessage") or self.transport.requests("restrictChatMember"))
+        await self.respond(answer=new_answer)  # the new question is answerable and unmutes
+        self.assertEqual(len(self.transport.requests("restrictChatMember")), 1)
+        async with self.sessions() as session:
+            self.assertIsNone(await session.get(CaptchaChallenge, (CHAT_ID, USER.id)))
+
+    async def test_attempts_run_out_and_leave_the_member_muted(self):
+        await self.challenge(attempts_left=2)
+        await self.respond(answer=99)
+        async with self.sessions() as session:
+            answer = (await session.get(CaptchaChallenge, (CHAT_ID, USER.id))).answer
+        await self.respond(answer=99 if answer != 99 else 98)
+        async with self.sessions() as session:
+            row = await session.get(CaptchaChallenge, (CHAT_ID, USER.id))
+            self.assertFalse(row.active)
+        self.assertTrue(self.transport.requests("deleteMessage"))
+        self.assertFalse(self.transport.requests("restrictChatMember"))
+        await self.respond(answer=answer)  # a failed challenge can no longer be answered
+        self.assertFalse(self.transport.requests("restrictChatMember"))
+
+    async def test_failed_question_update_does_not_consume_an_attempt(self):
+        await self.challenge(attempts_left=3)
+        self.transport.failures["editMessageText"].append("message is not modified")
+        await self.respond(answer=6)
+        async with self.sessions() as session:
+            row = await session.get(CaptchaChallenge, (CHAT_ID, USER.id))
+            self.assertEqual((row.attempts_left, row.answer), (3, 5))
+
+    async def test_join_gives_the_chat_configured_attempts(self):
+        async with self.sessions() as session:
+            (await get_or_create_chat(session, CHAT_ID)).captcha_attempts = 2
+            await session.commit()
+            await on_join(message(new_chat_members=[USER]).as_(self.bot), self.bot, session)
+            self.assertEqual((await session.get(CaptchaChallenge, (CHAT_ID, USER.id))).attempts_left, 2)
+
+    async def test_pending_lists_only_failed_challenges_for_admins(self):
+        async with self.sessions() as session:
+            session.add(CaptchaChallenge(chat_id=CHAT_ID, user_id=111, message_id=1, answer=5, active=False,
+                                         expires_at=datetime.now(timezone.utc)))
+            session.add(CaptchaChallenge(chat_id=CHAT_ID, user_id=222, message_id=2, answer=5, active=True,
+                                         expires_at=datetime.now(timezone.utc)))
+            await session.commit()
+            await cmd_pending(message("/pending", user=USER).as_(self.bot), self.bot, session)
+            self.assertIn("⛔", self.transport.requests("sendMessage")[-1].text)
+            await cmd_pending(message("/pending", user=ADMIN).as_(self.bot), self.bot, session)
+            reply = self.transport.requests("sendMessage")[-1].text
+            self.assertIn("user?id=111", reply)
+            self.assertNotIn("222", reply)
 
     async def test_join_post_failure_does_not_mute(self):
         self.transport.failures["sendMessage"].append("cannot send")

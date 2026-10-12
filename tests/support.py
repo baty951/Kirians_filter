@@ -14,12 +14,34 @@ from aiogram.types import Chat, Message, MessageEntity, User
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from bot.database.crud import invalidate_banned_words
 from bot.database.models import Base
 from bot.utils.actions import MUTED_PERMISSIONS
+from redis.exceptions import RedisError
 
 CHAT_ID = -100123
 USER = User(id=42, is_bot=False, first_name="User")
 ADMIN = User(id=99, is_bot=False, first_name="Admin")
+
+
+
+class FakeRedis:
+    """Redis double: SET NX with recorded calls, optional outage, no-op eval."""
+
+    def __init__(self):
+        self.keys, self.calls, self.unavailable = {}, [], False
+
+    async def set(self, key, value, nx=False, ex=None):
+        self.calls.append((key, ex))
+        if self.unavailable:
+            raise RedisError("down")
+        if nx and key in self.keys:
+            return None
+        self.keys[key] = value
+        return True
+
+    async def eval(self, *args):
+        return 0
 
 
 def message(text="hello", *, message_id=1, chat_type="supergroup", user=USER, **extra):
@@ -67,6 +89,8 @@ class TelegramSession(BaseSession):
             return User(id=bot.id, is_bot=True, first_name="Bot", username="test_bot")
         if name == "getChatMember":
             return self.members.get(method.user_id, SimpleNamespace(status="member", user=USER))
+        if name == "getChatAdministrators":
+            return [SimpleNamespace(user=ADMIN, status="administrator")]
         if name == "restrictChatMember":
             if method.permissions.can_send_messages:
                 self.members[method.user_id] = SimpleNamespace(status="member", user=USER)
@@ -88,6 +112,7 @@ class TelegramSession(BaseSession):
 
 class DatabaseCase(IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        invalidate_banned_words(None)  # tests share CHAT_ID; the cache is process-wide
         self.engine = create_async_engine("sqlite+aiosqlite:///:memory:")
 
         @event.listens_for(self.engine.sync_engine, "connect")

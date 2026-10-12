@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from config import get_settings
-from bot.database.crud import cancel_captcha, get_or_create_chat
+from bot.database.crud import cancel_captcha, get_or_create_chat, record_join
 from bot.database.models import ActionLog, CaptchaChallenge
 from bot.utils.actions import MUTED_PERMISSIONS, UNMUTED_PERMISSIONS, safe_call
 from bot.utils.captcha import build_captcha
@@ -45,6 +45,7 @@ async def on_join(message: Message, bot: Bot, session: AsyncSession) -> None:
     for user in message.new_chat_members:
         if user.is_bot or is_protected(user.id, bot):
             continue
+        await record_join(session, message.chat.id, user.id)
         if not chat.captcha_enabled or message.chat.type != ChatType.SUPERGROUP:
             if chat.welcome_enabled:
                 text = chat.welcome_text or "👋 Добро пожаловать, {name}!"
@@ -74,6 +75,7 @@ async def on_join(message: Message, bot: Bot, session: AsyncSession) -> None:
             old_message_id = challenge.message_id
             challenge.message_id, challenge.answer = sent.message_id, answer
             challenge.expires_at, challenge.active = expires_at, True
+            challenge.attempts_left = chat.captcha_attempts
             try:
                 await session.commit()
             except Exception:
@@ -127,8 +129,23 @@ async def on_captcha_answer(callback: CallbackQuery, bot: Bot, session: AsyncSes
                 or challenge.message_id != callback.message.message_id):
             await callback.answer("Эта проверка уже недействительна.", show_alert=True)
             return
+        if choice != challenge.answer and challenge.attempts_left > 1:
+            # Same message_id, so the live-challenge check above still binds the buttons to this row.
+            question, keyboard, new_answer = build_captcha(target_id)
+            error = await safe_call(callback.message.edit_text(
+                f"{mention(callback.from_user)}, {question}", reply_markup=keyboard,
+            ))
+            if error:  # attempt not consumed: the buttons on screen still match the stored answer
+                await callback.answer("Не удалось обновить вопрос. Попробуйте ещё раз.", show_alert=True)
+                return
+            challenge.attempts_left -= 1
+            challenge.answer = new_answer
+            await session.commit()
+            await callback.answer(f"❌ Неверно. Осталось попыток: {challenge.attempts_left}.", show_alert=True)
+            return
         if choice != challenge.answer:
             challenge.active = False
+            challenge.attempts_left = 0
             await session.commit()
             await safe_call(callback.message.delete())
             await callback.answer(
@@ -166,6 +183,9 @@ async def on_external_restriction(event: ChatMemberUpdated, bot: Bot, session: A
     )
     new = event.new_chat_member
     left = new.status == "left" or (new.status == "restricted" and not new.is_member)
+    is_member = new.status in ("member", "administrator", "creator") or (new.status == "restricted" and new.is_member)
+    if is_member and not was_member and not new.user.is_bot:  # joins hidden from the service message (large groups)
+        await record_join(session, event.chat.id, new.user.id)
     if event.from_user.id != bot.id and was_member and not left:
         async with restriction_lock(event.chat.id, event.new_chat_member.user.id):
             await cancel_captcha(session, event.chat.id, event.new_chat_member.user.id)

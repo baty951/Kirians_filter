@@ -14,6 +14,8 @@ class ModerationMiddleware(BaseMiddleware):
         self, handler: Callable[[Message, dict[str, Any]], Awaitable[Any]],
         event: Message, data: dict[str, Any],
     ) -> Any:
-        if await auto_moderate(event, data["bot"], data["session"], data.get("flooding", False)):
+        if await auto_moderate(
+            event, data["bot"], data["session"], data.get("flooding", False), data.get("duplicate", False),
+        ):
             return None
         return await handler(event, data)

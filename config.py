@@ -27,6 +27,9 @@ class Settings(BaseSettings):
 
     default_warn_limit: int = Field(3, alias="DEFAULT_WARN_LIMIT", ge=1)
     default_mute_minutes: int = Field(60, alias="DEFAULT_MUTE_MINUTES", ge=1, le=527039)
+    default_warn_ttl_days: int = Field(30, alias="DEFAULT_WARN_TTL_DAYS", ge=1)
+    default_ban_after_mutes: int = Field(3, alias="DEFAULT_BAN_AFTER_MUTES", ge=1)
+    default_flood_mute_minutes: int = Field(10, alias="DEFAULT_FLOOD_MUTE_MINUTES", ge=1, le=527039)
     antiflood_messages: int = Field(5, alias="ANTIFLOOD_MESSAGES", ge=1)
     antiflood_window_seconds: int = Field(5, alias="ANTIFLOOD_WINDOW_SECONDS", ge=1)
     captcha_timeout_seconds: int = Field(120, alias="CAPTCHA_TIMEOUT_SECONDS", ge=1)

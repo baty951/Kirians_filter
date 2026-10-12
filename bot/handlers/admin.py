@@ -1,5 +1,4 @@
 import json
-from datetime import timedelta
 from html import escape
 
 from aiogram import Bot, Router
@@ -10,14 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.crud import (
     add_banned_word,
-    add_warning,
     count_warnings,
+    failed_captchas,
     get_or_create_chat,
     remove_banned_word,
     reset_warnings,
     update_chat_setting,
     validate_reason,
 )
+from bot.filters.content import fold, normalize_domain, parse_domains
 from bot.filters.language import SCRIPT_RANGES, normalize_scripts, parse_scripts
 from bot.middlewares.admin_check import is_user_admin
 from bot.utils.actions import (
@@ -29,6 +29,7 @@ from bot.utils.actions import (
     safe_call,
     unban_user,
     unmute_user,
+    warn_user,
 )
 from bot.utils.helpers import extract_target_and_reason, is_protected, parse_duration
 
@@ -80,35 +81,24 @@ async def cmd_warn(message: Message, bot: Bot, session: AsyncSession) -> None:
     if not await _valid_reason(message, reason):
         return
     chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
-    total = await add_warning(session, message.chat.id, target_id, message.from_user.id if message.from_user else None, reason)
-
-    if total >= chat.warn_limit:
-        err = await mute_user(bot, message.chat.id, target_id, timedelta(minutes=chat.mute_minutes), session=session)
-        if err:
-            await _log_failure(message, bot, session, "WARN_MUTE", target_id, err)
-            await message.reply(
-                f"⚠️ Лимит {total}/{chat.warn_limit} достигнут, но заглушить не удалось: "
-                f"{humanize_error(err)}."
-            )
-            return
-        await reset_warnings(session, message.chat.id, target_id)
-        await message.reply(
-            f"🔇 Пользователь набрал {total}/{chat.warn_limit} предупреждений "
-            f"и заглушен на {chat.mute_minutes} мин."
-        )
-        await log_action(
-            bot, session, message.chat.id,
-            f"WARN→MUTE: user {target_id}, причина: {reason or '—'}",
-            action="WARN_MUTE", actor_id=message.from_user.id if message.from_user else None, target_id=target_id, reason=reason,
-        )
-    else:
+    action, total, err = await warn_user(
+        bot, session, message.chat.id, target_id,
+        actor_id=message.from_user.id if message.from_user else None, reason=reason,
+    )
+    if action == "WARN":
         await message.reply(
             f"⚠️ Предупреждение {total}/{chat.warn_limit}." + (f"\nПричина: {escape(reason)}" if reason else "")
         )
-        await log_action(
-            bot, session, message.chat.id,
-            f"WARN {total}: user {target_id}, причина: {reason or '—'}",
-            action="WARN", actor_id=message.from_user.id if message.from_user else None, target_id=target_id, reason=reason,
+    elif err:
+        what = "забанить" if action == "WARN_BAN" else "заглушить"
+        await message.reply(
+            f"⚠️ Лимит {total}/{chat.warn_limit} достигнут, но {what} не удалось: {humanize_error(err)}."
+        )
+    elif action == "WARN_BAN":
+        await message.reply("🔨 Пользователь забанен за повторные нарушения")
+    else:
+        await message.reply(
+            f"🔇 Пользователь набрал {total}/{chat.warn_limit} предупреждений и заглушен."
         )
 
 
@@ -315,6 +305,12 @@ async def cmd_addword(message: Message, bot: Bot, session: AsyncSession) -> None
     if not word or len(word) > 256:
         await message.reply("Слово или фраза должны содержать от 1 до 256 символов.")
         return
+    if not fold(word).strip():
+        await message.reply("Слово состоит только из невидимых символов.")
+        return
+    if "\n" in word:
+        await message.reply("Слово или фраза должны быть в одной строке.")
+        return
     await add_banned_word(session, message.chat.id, word)
     await message.reply(f"✅ Слово добавлено в фильтр: «{escape(word)}»")
 
@@ -330,6 +326,77 @@ async def cmd_delword(message: Message, bot: Bot, session: AsyncSession) -> None
         return
     removed = await remove_banned_word(session, message.chat.id, parts[1].strip())
     await message.reply("🗑 Удалено." if removed else "Слово не найдено в фильтре этого чата.")
+
+
+MAX_DOMAINS = 50
+
+
+def _split_domains(message: Message) -> tuple[list[str], list[str]]:
+    """(valid normalized domains, skipped raw args) from the command arguments."""
+    valid, skipped = [], []
+    for raw in (message.text or "").split()[1:]:
+        domain = normalize_domain(raw)
+        (valid if domain else skipped).append(domain or raw)
+    return valid, skipped
+
+
+@router.channel_post(Command("allowdomain"))
+@router.message(Command("allowdomain"))
+async def cmd_allowdomain(message: Message, bot: Bot, session: AsyncSession) -> None:
+    if not await _guard(message, bot):
+        return
+    valid, skipped = _split_domains(message)
+    if not valid:
+        await message.reply(
+            "Использование: /allowdomain <домен> [...]\nНапр.: /allowdomain youtube.com"
+            + (f"\n⚠️ Пропущено (неверный домен): {escape(', '.join(skipped)[:1000])}" if skipped else "")
+        )
+        return
+    chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
+    merged = sorted(set(parse_domains(chat.allowed_domains)) | set(valid))
+    if len(merged) > MAX_DOMAINS:
+        await message.reply(f"⚠️ Слишком много доменов: максимум {MAX_DOMAINS}.")
+        return
+    await update_chat_setting(session, message.chat.id, "allowed_domains", ",".join(merged))
+    text = f"🔗 Разрешённые домены: {escape(', '.join(merged))[:2000]}"
+    if skipped:
+        text += f"\n⚠️ Пропущено (неверный домен): {escape(', '.join(skipped)[:1000])}"
+    if not chat.filter_links:
+        text += "\nℹ️ Фильтр ссылок выключен — включите его в /settings."
+    await message.reply(text)
+
+
+@router.channel_post(Command("denydomain"))
+@router.message(Command("denydomain"))
+async def cmd_denydomain(message: Message, bot: Bot, session: AsyncSession) -> None:
+    if not await _guard(message, bot):
+        return
+    valid, skipped = _split_domains(message)
+    if not valid:
+        await message.reply(
+            "Использование: /denydomain <домен> [...]"
+            + (f"\n⚠️ Пропущено (неверный домен): {escape(', '.join(skipped)[:1000])}" if skipped else "")
+        )
+        return
+    chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
+    remaining = sorted(set(parse_domains(chat.allowed_domains)) - set(valid))
+    await update_chat_setting(session, message.chat.id, "allowed_domains", ",".join(remaining) or None)
+    text = f"🔗 Разрешённые домены: {escape(', '.join(remaining))[:2000] or '—'}"
+    if skipped:
+        text += f"\n⚠️ Пропущено (неверный домен): {escape(', '.join(skipped)[:1000])}"
+    await message.reply(text)
+
+
+@router.channel_post(Command("domains"))
+@router.message(Command("domains"))
+async def cmd_domains(message: Message, bot: Bot, session: AsyncSession) -> None:
+    chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
+    state = "вкл" if chat.filter_links else "выкл"
+    await message.reply(
+        f"🔗 Фильтр ссылок: <b>{state}</b>\n"
+        f"Разрешённые домены: {escape(', '.join(parse_domains(chat.allowed_domains)))[:2000] or '—'}\n\n"
+        "Использование: /allowdomain youtube.com — добавить, /denydomain youtube.com — убрать."
+    )
 
 
 @router.channel_post(Command("langs"))
@@ -383,6 +450,21 @@ async def cmd_allowlang(message: Message, bot: Bot, session: AsyncSession) -> No
     remaining = sorted(set(parse_scripts(chat.blocked_scripts)) - set(valid))
     await update_chat_setting(session, message.chat.id, "blocked_scripts", ",".join(remaining) or None)
     await message.reply(f"🌐 Теперь блокируются: {', '.join(remaining) or '—'}")
+
+
+@router.message(Command("pending"))
+async def cmd_pending(message: Message, bot: Bot, session: AsyncSession) -> None:
+    if not await _guard(message, bot):
+        return
+    rows = await failed_captchas(session, message.chat.id)
+    if not rows:
+        await message.reply("Нет участников, не прошедших капчу.")
+        return
+    lines = [f'• <a href="tg://user?id={row.user_id}">{row.user_id}</a> — {row.expires_at:%d.%m %H:%M}' for row in rows]
+    await message.reply(
+        "🤖 Не прошли капчу и остаются в муте (последние 30):\n" + "\n".join(lines)
+        + "\nСнять ограничение: /unmute &lt;ID&gt;"
+    )
 
 
 @router.channel_post(Command("setlog"))
