@@ -10,6 +10,9 @@ from bot.database.crud import get_or_create_chat, update_chat_setting
 from bot.database.models import Chat
 from bot.middlewares.admin_check import is_user_admin
 from bot.handlers.admin import _guard
+from bot.utils.actions import safe_call
+
+MENU_TEXT = "⚙️ Настройки чата\nВыберите раздел:"
 
 router = Router(name="settings")
 router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}))
@@ -51,18 +54,47 @@ NUMBERS: dict[str, tuple[str, tuple[int, ...]]] = {
 }
 
 
-def _build_keyboard(chat: Chat) -> InlineKeyboardMarkup:
+# section key -> (title, fields shown in it); every TOGGLES / NUMBERS field belongs to exactly one section
+SECTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "filters": ("🧹 Фильтры", (
+        "filter_badwords", "filter_links", "filter_mentions", "filter_media", "filter_language",
+        "filter_duplicates", "duplicate_window_seconds",
+    )),
+    "punish": ("⚠️ Наказания", (
+        "warn_limit", "mute_minutes", "warn_ttl_days", "ban_after_mutes",
+        "warn_on_badwords", "warn_on_links", "warn_on_mentions", "warn_on_media", "warn_on_language",
+        "warn_on_flood", "warn_on_newbie", "warn_on_duplicates",
+    )),
+    "flood": ("🌊 Антифлуд", (
+        "antiflood_enabled", "antiflood_messages", "antiflood_window_seconds", "flood_mute_minutes",
+    )),
+    "members": ("👋 Новички и капча", (
+        "captcha_enabled", "captcha_attempts", "welcome_enabled", "filter_newbie", "newbie_hours",
+    )),
+}
+_SECTION_OF = {field: key for key, (_, fields) in SECTIONS.items() for field in fields}
+
+
+def _build_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=title, callback_data=f"menu:{key}")] for key, (title, _) in SECTIONS.items()
+    ])
+
+
+def _build_keyboard(chat: Chat, section: str) -> InlineKeyboardMarkup:
     rows = []
-    for field, label in TOGGLES.items():
-        enabled = getattr(chat, field)
-        mark = "✅" if enabled else "❌"
-        rows.append([InlineKeyboardButton(text=f"{mark} {label}", callback_data=f"set:{field}")])
-    for field, (label, _) in NUMBERS.items():
-        rows.append([
-            InlineKeyboardButton(text="−", callback_data=f"num:{field}:-"),
-            InlineKeyboardButton(text=f"{label}: {getattr(chat, field)}", callback_data=f"num:{field}:."),
-            InlineKeyboardButton(text="+", callback_data=f"num:{field}:+"),
-        ])
+    for field in SECTIONS[section][1]:
+        if field in TOGGLES:
+            mark = "✅" if getattr(chat, field) else "❌"
+            rows.append([InlineKeyboardButton(text=f"{mark} {TOGGLES[field]}", callback_data=f"set:{field}")])
+        else:
+            label = NUMBERS[field][0]
+            rows.append([
+                InlineKeyboardButton(text="−", callback_data=f"num:{field}:-"),
+                InlineKeyboardButton(text=f"{label}: {getattr(chat, field)}", callback_data=f"num:{field}:."),
+                InlineKeyboardButton(text="+", callback_data=f"num:{field}:+"),
+            ])
+    rows.append([InlineKeyboardButton(text="◀ Назад", callback_data="menu:main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -71,11 +103,27 @@ def _build_keyboard(chat: Chat) -> InlineKeyboardMarkup:
 async def cmd_settings(message: Message, bot: Bot, session: AsyncSession) -> None:
     if not await _guard(message, bot):
         return
-    chat = await get_or_create_chat(session, message.chat.id, message.chat.title)
-    await message.answer(
-        "⚙️ Настройки чата\nПереключатели и значения (− / +):",
-        reply_markup=_build_keyboard(chat),
-    )
+    await get_or_create_chat(session, message.chat.id, message.chat.title)
+    await message.answer(MENU_TEXT, reply_markup=_build_menu())
+
+
+@router.callback_query(F.data.startswith("menu:"))
+async def open_menu(callback: CallbackQuery, bot: Bot, session: AsyncSession) -> None:
+    if not isinstance(callback.message, Message):
+        await callback.answer("Меню недоступно.")
+        return
+    if not await is_user_admin(bot, callback.message.chat.id, callback.from_user.id):
+        await callback.answer("Только для администраторов.", show_alert=True)
+        return
+    key = callback.data.split(":", 1)[1]
+    if key == "main":
+        await safe_call(callback.message.edit_text(MENU_TEXT, reply_markup=_build_menu()))
+    elif key in SECTIONS:
+        chat = await get_or_create_chat(session, callback.message.chat.id)
+        await safe_call(callback.message.edit_text(
+            f"{SECTIONS[key][0]}\nПереключатели и значения (− / +):", reply_markup=_build_keyboard(chat, key),
+        ))
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("set:"))
@@ -96,7 +144,7 @@ async def toggle_setting(callback: CallbackQuery, bot: Bot, session: AsyncSessio
     chat = await get_or_create_chat(session, chat_id)
     await update_chat_setting(session, chat_id, field, not getattr(chat, field))
     chat = await get_or_create_chat(session, chat_id)  # refresh
-    await callback.message.edit_reply_markup(reply_markup=_build_keyboard(chat))
+    await callback.message.edit_reply_markup(reply_markup=_build_keyboard(chat, _SECTION_OF[field]))
     await callback.answer(f"{TOGGLES[field]}: {'вкл' if getattr(chat, field) else 'выкл'}")
 
 
@@ -127,7 +175,7 @@ async def step_setting(callback: CallbackQuery, bot: Bot, session: AsyncSession)
     value = min(options) if step == "+" else max(options)
     await update_chat_setting(session, chat_id, field, value)
     chat = await get_or_create_chat(session, chat_id)
-    await callback.message.edit_reply_markup(reply_markup=_build_keyboard(chat))
+    await callback.message.edit_reply_markup(reply_markup=_build_keyboard(chat, _SECTION_OF[field]))
     await callback.answer(f"{NUMBERS[field][0]}: {getattr(chat, field)}")
 
 
