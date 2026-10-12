@@ -1,4 +1,5 @@
 import os
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -17,12 +18,27 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from bot.database.crud import invalidate_banned_words
 from bot.database.models import Base
 from bot.utils.actions import MUTED_PERMISSIONS
+from bot.utils.captcha import EMOJI_NAMES
 from redis.exceptions import RedisError
 
 CHAT_ID = -100123
 USER = User(id=42, is_bot=False, first_name="User")
 ADMIN = User(id=99, is_bot=False, first_name="Admin")
 
+
+
+def solve_captcha(text, keyboard):
+    """Independently solve a captcha question; returns the callback value of the one correct button."""
+    buttons = [button for row in keyboard.inline_keyboard for button in row]
+    found = re.search(r"(\d+) ([+\-×]) (\d+)", text)
+    if found:
+        left, op, right = int(found[1]), found[2], int(found[3])
+        label = str({"+": left + right, "-": left - right, "×": left * right}[op])
+    else:
+        label = next(emoji for emoji, name in EMOJI_NAMES.items() if f"Нажмите на {name}." in text)
+    correct = [button for button in buttons if button.text == label]
+    assert len(correct) == 1, (text, [button.text for button in buttons])
+    return int(correct[0].callback_data.rsplit(":", 1)[1])
 
 
 class FakeRedis:

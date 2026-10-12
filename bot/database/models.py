@@ -28,7 +28,7 @@ class Chat(Base):
     filter_language: Mapped[bool] = mapped_column(Boolean, default=False)
     antiflood_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     captcha_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    captcha_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    captcha_attempts: Mapped[int] = mapped_column(Integer, default=2)
     welcome_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Tunables

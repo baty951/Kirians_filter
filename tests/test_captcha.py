@@ -1,5 +1,4 @@
 import asyncio
-import re
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -12,7 +11,7 @@ from bot.handlers.admin import cmd_pending
 from bot.handlers.welcome import expire_captchas, on_captcha_answer, on_external_restriction, on_join
 from bot.utils.actions import mute_user
 from config import Settings
-from support import ADMIN, CHAT_ID, USER, DatabaseCase, message, restricted_member
+from support import ADMIN, CHAT_ID, USER, DatabaseCase, message, restricted_member, solve_captcha
 
 
 class CaptchaTests(DatabaseCase):
@@ -94,15 +93,52 @@ class CaptchaTests(DatabaseCase):
         edits = self.transport.requests("editMessageText")
         self.assertEqual(len(edits), 1)
         # The stored answer must be the one for the question now on screen, and offered as a button.
-        a, b = map(int, re.search(r"(\d+) \+ (\d+)", edits[0].text).groups())
-        self.assertEqual(new_answer, a + b)
-        buttons = [button.callback_data for button in edits[0].reply_markup.inline_keyboard[0]]
-        self.assertIn(f"captcha:{USER.id}:{new_answer}", buttons)
+        self.assertEqual(new_answer, solve_captcha(edits[0].text, edits[0].reply_markup))
         self.assertFalse(self.transport.requests("deleteMessage") or self.transport.requests("restrictChatMember"))
         await self.respond(answer=new_answer)  # the new question is answerable and unmutes
         self.assertEqual(len(self.transport.requests("restrictChatMember")), 1)
         async with self.sessions() as session:
             self.assertIsNone(await session.get(CaptchaChallenge, (CHAT_ID, USER.id)))
+
+    async def test_correct_answer_turns_the_captcha_into_the_welcome(self):
+        await self.challenge()
+        async with self.sessions() as session:
+            (await get_or_create_chat(session, CHAT_ID)).welcome_text = "Hi, {name}!"
+            await session.commit()
+        await self.respond()
+        edit = self.transport.requests("editMessageText")[-1]
+        self.assertTrue(edit.text.startswith("Hi, <a href="))
+        self.assertIsNone(edit.reply_markup)  # no buttons left
+        self.assertFalse(self.transport.requests("deleteMessage"))
+        self.assertFalse(self.transport.requests("sendMessage"))
+        self.assertEqual(len(self.transport.requests("restrictChatMember")), 1)
+
+    async def test_default_welcome_and_disabled_welcome(self):
+        await self.challenge()
+        await self.respond()
+        self.assertIn("Добро пожаловать", self.transport.requests("editMessageText")[-1].text)
+        self.transport.calls.clear()
+        await self.challenge()
+        async with self.sessions() as session:
+            (await get_or_create_chat(session, CHAT_ID)).welcome_enabled = False
+            await session.commit()
+        await self.respond()
+        self.assertFalse(self.transport.requests("editMessageText"))
+        self.assertTrue(self.transport.requests("deleteMessage"))  # the captcha message just disappears
+
+    async def test_failed_welcome_edit_falls_back_to_a_new_message(self):
+        await self.challenge()
+        self.transport.failures["editMessageText"].append("message can't be edited")
+        with self.assertLogs("bot.utils.actions", level="WARNING"):
+            await self.respond()
+        self.assertTrue(self.transport.requests("deleteMessage"))
+        self.assertIn("Добро пожаловать", self.transport.requests("sendMessage")[-1].text)
+
+    async def test_wrong_answers_never_show_the_welcome(self):
+        await self.challenge(attempts_left=1)
+        await self.respond(answer=6)
+        self.assertFalse(self.transport.requests("editMessageText"))
+        self.assertFalse(self.transport.requests("sendMessage"))
 
     async def test_attempts_run_out_and_leave_the_member_muted(self):
         await self.challenge(attempts_left=2)

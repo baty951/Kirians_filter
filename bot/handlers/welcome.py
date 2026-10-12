@@ -19,6 +19,10 @@ router = Router(name="welcome")
 logger = logging.getLogger(__name__)
 
 
+def _welcome_text(chat, user) -> str:
+    return (chat.welcome_text or "👋 Добро пожаловать, {name}!").replace("{name}", mention(user))
+
+
 def _deadline(challenge: CaptchaChallenge) -> datetime:
     return challenge.expires_at.replace(tzinfo=timezone.utc) if challenge.expires_at.tzinfo is None else challenge.expires_at
 
@@ -48,8 +52,7 @@ async def on_join(message: Message, bot: Bot, session: AsyncSession) -> None:
         await record_join(session, message.chat.id, user.id)
         if not chat.captcha_enabled or message.chat.type != ChatType.SUPERGROUP:
             if chat.welcome_enabled:
-                text = chat.welcome_text or "👋 Добро пожаловать, {name}!"
-                await message.answer(text.replace("{name}", mention(user)))
+                await message.answer(_welcome_text(chat, user))
             continue
         async with restriction_lock(message.chat.id, user.id):
             member = await bot.get_chat_member(message.chat.id, user.id)
@@ -171,7 +174,15 @@ async def on_captcha_answer(callback: CallbackQuery, bot: Bot, session: AsyncSes
                 await callback.answer("Не удалось снять ограничение. Повторите попытку.", show_alert=True)
                 return
         await cancel_captcha(session, chat_id, target_id)
-        await safe_call(callback.message.delete())
+        chat = await get_or_create_chat(session, chat_id)
+        if chat.welcome_enabled:
+            # The captcha message becomes the welcome, so the chat gets no extra message.
+            text = _welcome_text(chat, callback.from_user)
+            if await safe_call(callback.message.edit_text(text, reply_markup=None)):
+                await safe_call(callback.message.delete())
+                await safe_call(callback.message.answer(text))
+        else:
+            await safe_call(callback.message.delete())
         await callback.answer("✅ Добро пожаловать!")
 
 
