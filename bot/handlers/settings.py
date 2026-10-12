@@ -190,7 +190,4 @@ async def cmd_setwelcome(message: Message, bot: Bot, session: AsyncSession) -> N
         await message.reply("Текст слишком длинный: максимум 1024 символа (с учётом экранирования).")
         return
     await update_chat_setting(session, message.chat.id, "welcome_text", text or None)
-    note = ""
-    if text and message.chat.type == ChatType.SUPERGROUP and (await get_or_create_chat(session, message.chat.id)).captcha_enabled:
-        note = "\nℹ️ Приветствие показывается только при выключенной капче."
-    await message.reply(("👋 Приветствие обновлено." if text else "Приветствие сброшено на стандартное.") + note)
+    await message.reply("👋 Приветствие обновлено." if text else "Приветствие сброшено на стандартное.")
