@@ -1,30 +1,12 @@
-from redis.exceptions import RedisError
 from sqlalchemy import select
 
 from bot.database.crud import get_or_create_chat
 from bot.database.models import Warning
 from bot.handlers.moderation import auto_moderate
 from bot.middlewares.antiflood import AntiFloodMiddleware
-from support import ADMIN, CHAT_ID, USER, DatabaseCase, message
+from support import ADMIN, CHAT_ID, USER, DatabaseCase, FakeRedis, message
 
 TEXT = "Buy my cheap watches now"
-
-
-class FakeRedis:
-    def __init__(self):
-        self.keys, self.calls, self.unavailable = {}, [], False
-
-    async def set(self, key, value, nx=False, ex=None):
-        self.calls.append((key, ex))
-        if self.unavailable:
-            raise RedisError("down")
-        if nx and key in self.keys:
-            return None
-        self.keys[key] = value
-        return True
-
-    async def eval(self, *args):
-        return 0
 
 
 class DuplicateTests(DatabaseCase):

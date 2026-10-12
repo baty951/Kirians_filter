@@ -6,7 +6,7 @@ from aiogram.enums import ChatType
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.database.crud import count_recent_actions, get_banned_words_cached, get_or_create_chat, is_newbie
+from bot.database.crud import count_recent_actions, get_banned_words_cached, get_or_create_chat, is_approved, is_newbie
 from bot.filters.content import contains_link, contains_mention, find_banned_word, parse_domains
 from bot.filters.language import detect_blocked_script, parse_scripts
 from bot.middlewares.admin_check import is_user_admin
@@ -44,6 +44,9 @@ async def auto_moderate(
         if user is None or user.is_bot or is_protected(user.id, bot):
             return False
         if message.chat.type != ChatType.CHANNEL and await is_user_admin(bot, message.chat.id, user.id):
+            return False
+        # ponytail: one primary-key lookup per message; cache like banned words if it shows up in profiles
+        if await is_approved(session, message.chat.id, user.id):
             return False
         target_id = user.id
 

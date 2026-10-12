@@ -6,7 +6,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from bot.database.models import ActionLog, BannedWord, CaptchaChallenge, Chat, MemberJoin, StoredMessage, Warning
+from bot.database.models import (
+    ActionLog, ApprovedUser, BannedWord, CaptchaChallenge, Chat, MemberJoin, StoredMessage, Warning,
+)
 
 
 async def get_or_create_chat(session: AsyncSession, chat_id: int, title: str | None = None) -> Chat:
@@ -239,3 +241,27 @@ async def is_newbie(session: AsyncSession, chat_id: int, user_id: int, hours: in
     return await session.scalar(select(MemberJoin.user_id).where(
         MemberJoin.chat_id == chat_id, MemberJoin.user_id == user_id, MemberJoin.joined_at >= since,
     )) is not None
+
+
+async def set_approved(session: AsyncSession, chat_id: int, user_id: int, approved_by: int | None, approved: bool) -> bool:
+    """Approve or un-approve a member. Returns False if there was nothing to change."""
+    row = await session.get(ApprovedUser, (chat_id, user_id))
+    if approved == (row is not None):
+        return False
+    if approved:
+        session.add(ApprovedUser(chat_id=chat_id, user_id=user_id, approved_by=approved_by))
+    else:
+        await session.delete(row)
+    await session.commit()
+    return True
+
+
+async def is_approved(session: AsyncSession, chat_id: int, user_id: int) -> bool:
+    return await session.get(ApprovedUser, (chat_id, user_id)) is not None
+
+
+async def list_approved(session: AsyncSession, chat_id: int, limit: int = 50) -> list[ApprovedUser]:
+    return list(await session.scalars(
+        select(ApprovedUser).where(ApprovedUser.chat_id == chat_id)
+        .order_by(ApprovedUser.created_at.desc()).limit(limit)
+    ))
